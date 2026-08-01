@@ -8,17 +8,23 @@ import { setupEasWellKnownRoutes } from './wellKnown.js';
 const easIssuer = 'https://mcp.example.com';
 const easKeyId = 'test-key-id';
 
-// The routes only read the EAS fields, so a minimal cast keeps these tests focused on the unit.
-const easConfig = (easPrivateKey: string): Config =>
-  ({ easIssuer, easKeyId, easPrivateKey }) as unknown as Config;
+// The routes only read the EAS and oauth fields, so a minimal cast keeps these tests focused on
+// the unit.
+const easConfig = (
+  easPrivateKey: string,
+  oauth: { enabled: boolean; embeddedAuthzServer: boolean } = {
+    enabled: false,
+    embeddedAuthzServer: false,
+  },
+): Config => ({ easIssuer, easKeyId, easPrivateKey, oauth }) as unknown as Config;
 
 describe('EAS well-known routes', async () => {
   const { privateKey } = await generateKeyPair('RS256', { extractable: true });
   const privateKeyPem = await exportPKCS8(privateKey);
 
-  async function startApp(): Promise<express.Application> {
+  async function startApp(oauth?: Parameters<typeof easConfig>[1]): Promise<express.Application> {
     const app = express();
-    await setupEasWellKnownRoutes(app, easConfig(privateKeyPem));
+    await setupEasWellKnownRoutes(app, easConfig(privateKeyPem, oauth));
     return app;
   }
 
@@ -59,6 +65,24 @@ describe('EAS well-known routes', async () => {
       issuer: easIssuer,
       jwks_uri: `${easIssuer}/.well-known/jwks.json`,
     });
+  });
+
+  it('serves the same IdP metadata on the OAuth authorization server path when the embedded authz server is inactive', async () => {
+    const app = await startApp({ enabled: true, embeddedAuthzServer: false });
+
+    const response = await request(app).get('/.well-known/oauth-authorization-server');
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      issuer: easIssuer,
+      jwks_uri: `${easIssuer}/.well-known/jwks.json`,
+    });
+  });
+
+  it('does not claim the OAuth authorization server path when the embedded authz server is active', async () => {
+    const app = await startApp({ enabled: true, embeddedAuthzServer: true });
+
+    const response = await request(app).get('/.well-known/oauth-authorization-server');
+    expect(response.status).toBe(404);
   });
 
   it('throws when the configured private key is unusable', async () => {

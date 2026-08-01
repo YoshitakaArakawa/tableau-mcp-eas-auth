@@ -41,10 +41,22 @@ export async function setupEasWellKnownRoutes(
     res.json(jwks);
   });
 
+  const metadata = {
+    issuer: config.easIssuer,
+    jwks_uri: `${config.easIssuer}/.well-known/jwks.json`,
+  };
+
   app.get('/.well-known/openid-configuration', (_req, res) => {
-    res.json({
-      issuer: config.easIssuer,
-      jwks_uri: `${config.easIssuer}/.well-known/jwks.json`,
-    });
+    res.json(metadata);
   });
+
+  // Tableau nodes are not consistent about which metadata path they probe when discovering the
+  // EAS JWKS — some fetch the OpenID configuration, others the OAuth authorization server
+  // metadata. Serve the same minimal document on both paths, unless the embedded authorization
+  // server is active, in which case it registers a full metadata document on this path itself.
+  if (!config.oauth.enabled || !config.oauth.embeddedAuthzServer) {
+    app.get('/.well-known/oauth-authorization-server', (_req, res) => {
+      res.json(metadata);
+    });
+  }
 }
