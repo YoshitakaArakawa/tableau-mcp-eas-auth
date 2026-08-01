@@ -48,8 +48,6 @@ src/web/apps/dist/
 stale-*.md
 
 # Fork-local working areas and machine-local files (never commit)
-.work/eas/
-.work/notes/
-.work/design-notes/
+.work/
 .playwright-mcp/
 fly.toml
