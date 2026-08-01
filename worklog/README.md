@@ -16,3 +16,5 @@ PR 単位の作業記録(背景・設計判断・検証)を置くフォルダ。
   個人デプロイの URL は書かない(抽象表現かプレースホルダにする)
 
 ## 一覧
+
+- [20260802-repo-conventions.md](20260802-repo-conventions.md) — 本規約(worklog/・verification/)の導入
