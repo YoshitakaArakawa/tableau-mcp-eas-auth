@@ -6,23 +6,25 @@
 > This is an experimental fork of tableau/tableau-mcp adding an `AUTH=eas` mode. For the official
 > product, please refer to the upstream repository.
 
+このフォークは認証モード **`AUTH=eas`(Connected App / OAuth 2.0 Trust = 外部認可サーバー)** を
+追加する。MCP サーバー自身を Tableau サイトに EAS として登録し、サーバーが保持する RS256 鍵で
+REST サインイン用 JWT と埋め込み用 JWT の両方を署名する。ゴールは、ユーザー体験を
+「OAuth リダイレクトで Tableau にログインし、サイトを選ぶだけ」に保ったまま、MCP Apps の
+per-user 埋め込み viz を成立させること。
+
 ## 背景 — なぜ EAS モードが必要か
 
 tableau-mcp の MCP Apps 機能は、チャット UI 内の iframe に Tableau viz を埋め込み表示できる
 (`render-interactive-viz` / `get-embed-token`)。この埋め込みには Embedding API v3 用の JWT が
-必要で、upstream 4.0.6 時点でサーバーが署名に使える材料は次の2つしかない:
+必要になる。upstream 4.0.6 時点で、サーバーがその署名に使える材料は次の2つしかない:
 
 - **direct-trust**(Connected App / Direct Trust): サイト単位の共有 secret(HS256)。動作するが、
   site-wide の secret をサーバーに置く運用になる
 - **uat**(User Access Token): Tableau 内部向けの仕組みで、一般の Tableau Cloud サイトでは使えない
 
-一方でログイン体験としては「OAuth リダイレクトで Tableau にログインし、サイトを選ぶだけ」を
-維持したい。ユーザーに PAT や Connected App を意識させたくない。
-
-そこで第3の署名方式として **EAS(Connected App / OAuth 2.0 Trust = 外部認可サーバー)** を実装した。
-MCP サーバー自身を Tableau サイトに EAS として登録し、サーバーが保持する RS256 鍵で
-REST サインイン用 JWT と embed JWT の両方を署名する。EAS はサーバー内部への「署名器」の追加であり、
-既存の OAuth ログイン層(`src/server/oauth/`)には一切手を入れていない。
+per-user かつ一般の Tableau Cloud サイトで使える署名方式が存在しない。これが EAS を第3の方式として
+実装した理由である。EAS はサーバー内部への「署名器」の追加であり、既存の OAuth ログイン層
+(`src/server/oauth/`)には一切手を入れていない。
 
 ## 変更内容
 
@@ -57,9 +59,9 @@ REST サインイン用 JWT と embed JWT の両方を署名する。EAS はサ�
   JWKS を能動的に fetch しに来るため localhost 不可。ローカル検証には HTTPS トンネルか
   リモートデプロイが必要
 - **埋め込み認可サーバーモード(`OAUTH_EMBEDDED_AUTHZ_SERVER=true`)は Cloud のリモートデプロイでは
-  使えない**。Tableau Cloud の OAuth エンドポイント(client_type=tableau-mcp)は認可コードの
-  返し先(redirect_uri)を `http://127.0.0.1:<port>` の loopback に限定しており(公開 HTTPS は
-  400)、この許可リストを広げる設定は Tableau Server の TSM にしか存在しない。Cloud では
+  使えない**。Tableau Cloud の OAuth エンドポイント(client_type=tableau-mcp)は、認可コードの
+  返し先(redirect_uri)を `http://127.0.0.1:<port>` の loopback に限定している(公開 HTTPS は
+  400)。この許可リストを広げる設定は Tableau Server の TSM にしか存在しない。Cloud では
   `OAUTH_ISSUER=https://sso.online.tableau.com` + `OAUTH_EMBEDDED_AUTHZ_SERVER=false` を使う
 - **sso.online.tableau.com は動的クライアント登録(DCR)非対応・CIMD のみ対応**。DCR 前提の
   mcp-remote(0.1.38 時点)では接続できない。CIMD 対応の MCP クライアント
@@ -68,12 +70,14 @@ REST サインイン用 JWT と embed JWT の両方を署名する。EAS はサ�
 
 ## 既知の制約(サーバー外)
 
-Claude Desktop / claude.ai の MCP Apps サンドボックスは UI リソースの `csp.frameDomains` 宣言を
-無視して `frame-src 'self'` を強制するため、Tableau viz のネスト iframe がブロックされ
-「Authentication was unsuccessful」表示になる
+Claude Desktop / claude.ai では、MCP Apps 内の viz 表示だけが
+「Authentication was unsuccessful」で失敗する。これはサーバー側の問題ではない。
+スタンドアロンの Embedding API v3 ページでは同じ JWT で viz が描画されることを確認済み。
+
+原因は Claude 側の MCP Apps サンドボックスが UI リソースの `csp.frameDomains` 宣言を無視して
+`frame-src 'self'` を強制し、Tableau viz のネスト iframe をブロックすること
 ([anthropics/claude-ai-mcp#40](https://github.com/anthropics/claude-ai-mcp/issues/40))。
-サーバー側の実装・JWT は正常で、スタンドアロンの Embedding API v3 ページでは同じ JWT で viz が
-描画されることを確認済み。frameDomains を尊重するホストでは動作する見込み。
+frameDomains を尊重するホストでは動作する見込み。
 
 ## Tableau Server への読み替え
 
