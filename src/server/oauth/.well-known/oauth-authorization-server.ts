@@ -11,7 +11,8 @@ import { getSupportedScopes } from '../scopes.js';
  */
 export function oauthAuthorizationServer(app: express.Application): void {
   app.get('/.well-known/oauth-authorization-server', async (_req, res) => {
-    const { issuer, advertiseApiScopes, enforceScopes, clientIdSecretPairs } = getConfig().oauth;
+    const config = getConfig();
+    const { issuer, advertiseApiScopes, enforceScopes, clientIdSecretPairs } = config.oauth;
 
     const grant_types_supported = ['authorization_code', 'refresh_token'];
     const token_endpoint_auth_methods_supported = ['none'];
@@ -37,6 +38,11 @@ export function oauthAuthorizationServer(app: express.Application): void {
       token_endpoint_auth_methods_supported,
       subject_types_supported: ['public'],
       client_id_metadata_document_supported: true,
+      // When this server also acts as a Tableau EAS, advertise where its JWT signing keys are
+      // published — Tableau may look for the JWKS here instead of in the OpenID metadata document.
+      ...(config.auth === 'eas'
+        ? { jwks_uri: `${config.easIssuer}/.well-known/jwks.json` }
+        : undefined),
     });
   });
 }

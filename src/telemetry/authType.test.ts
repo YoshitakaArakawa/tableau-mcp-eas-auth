@@ -52,6 +52,10 @@ describe('getAuthTypeForTelemetry', () => {
     expect(getAuthTypeForTelemetry(configWithAuth('direct-trust'), undefined)).toBe('direct-trust');
   });
 
+  it("returns 'eas' for config.auth='eas' with no tableauAuthInfo", () => {
+    expect(getAuthTypeForTelemetry(configWithAuth('eas'), undefined)).toBe('eas');
+  });
+
   it("returns 'embedded-oauth' for config.auth='oauth' with no tableauAuthInfo", () => {
     expect(getAuthTypeForTelemetry(configWithAuth('oauth'), undefined)).toBe('embedded-oauth');
   });
@@ -76,6 +80,10 @@ describe('getAuthTypeForTelemetry', () => {
     expect(getAuthTypeForTelemetry(configWithAuth('direct-trust'), xTableauAuthInfo)).toBe(
       'direct-trust',
     );
+  });
+
+  it("returns 'eas' for X-Tableau-Auth with config.auth='eas'", () => {
+    expect(getAuthTypeForTelemetry(configWithAuth('eas'), xTableauAuthInfo)).toBe('eas');
   });
 
   it("returns 'embedded-oauth' for X-Tableau-Auth with config.auth='oauth'", () => {

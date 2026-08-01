@@ -26,4 +26,14 @@ export type AuthConfig = {
       scopes: Set<string>;
       additionalPayload?: Record<string, unknown>;
     }
+  | {
+      type: 'eas';
+      username: string;
+      issuer: string;
+      audience: string;
+      privateKey: string;
+      keyId: string;
+      scopes: Set<string>;
+      additionalPayload?: Record<string, unknown>;
+    }
 );

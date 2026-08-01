@@ -66,6 +66,19 @@ export function buildAuthConfig({
         additionalPayload,
       };
 
+    case 'eas':
+      return {
+        type: 'eas',
+        siteName: config.siteName,
+        username,
+        issuer: config.easIssuer,
+        audience: config.easAudience,
+        privateKey: config.easPrivateKey,
+        keyId: config.easKeyId,
+        scopes,
+        additionalPayload,
+      };
+
     case 'oauth':
       // oauth has no server-side signing material — Bearer tokens are passed
       // through separately by the caller.

@@ -595,6 +595,98 @@ describe('Config', () => {
     });
   });
 
+  describe('EAS configuration config parsing', () => {
+    function stubDefaultEasEnvVars(): void {
+      vi.stubEnv('AUTH', 'eas');
+      vi.stubEnv('EAS_ISSUER', 'https://mcp.example.com');
+      vi.stubEnv('EAS_KEY_ID', 'test-key-id');
+      vi.stubEnv('EAS_PRIVATE_KEY', 'test-private-key');
+      vi.stubEnv('JWT_SUB_CLAIM', 'test-jwt-sub-claim');
+    }
+
+    beforeEach(() => {
+      stubDefaultEasEnvVars();
+    });
+
+    it('should configure eas authentication when all required variables are provided', () => {
+      const config = new Config();
+      expect(config.auth).toBe('eas');
+      expect(config.easIssuer).toBe('https://mcp.example.com');
+      expect(config.easKeyId).toBe('test-key-id');
+      expect(config.easPrivateKey).toBe('test-private-key');
+      expect(config.jwtUsername).toBe('test-jwt-sub-claim');
+    });
+
+    it('should default easAudience to "tableau" when EAS_AUDIENCE is not set', () => {
+      const config = new Config();
+      expect(config.easAudience).toBe('tableau');
+    });
+
+    it('should set easAudience to the specified value when EAS_AUDIENCE is set', () => {
+      vi.stubEnv('EAS_AUDIENCE', 'tableau:test-site-luid');
+
+      const config = new Config();
+      expect(config.easAudience).toBe('tableau:test-site-luid');
+    });
+
+    it('should throw error when JWT_SUB_CLAIM is missing', () => {
+      vi.stubEnv('JWT_SUB_CLAIM', undefined);
+
+      expect(() => new Config()).toThrow('The environment variable JWT_SUB_CLAIM is not set');
+    });
+
+    it('should throw error when EAS_ISSUER is missing', () => {
+      vi.stubEnv('EAS_ISSUER', undefined);
+
+      expect(() => new Config()).toThrow('The environment variable EAS_ISSUER is not set');
+    });
+
+    it('should throw error when EAS_ISSUER does not start with "https://"', () => {
+      vi.stubEnv('EAS_ISSUER', 'http://mcp.example.com');
+
+      expect(() => new Config()).toThrow(
+        'The environment variable EAS_ISSUER must start with "https://" because Tableau requires the issuer to be an HTTPS URI: http://mcp.example.com',
+      );
+    });
+
+    it('should throw error when EAS_KEY_ID is missing', () => {
+      vi.stubEnv('EAS_KEY_ID', undefined);
+
+      expect(() => new Config()).toThrow('The environment variable EAS_KEY_ID is not set');
+    });
+
+    it('should throw error when EAS_PRIVATE_KEY and EAS_PRIVATE_KEY_PATH is not set', () => {
+      vi.stubEnv('EAS_PRIVATE_KEY', undefined);
+      vi.stubEnv('EAS_PRIVATE_KEY_PATH', undefined);
+
+      expect(() => new Config()).toThrow(
+        'One of the environment variables: EAS_PRIVATE_KEY_PATH or EAS_PRIVATE_KEY must be set',
+      );
+    });
+
+    it('should throw error when EAS_PRIVATE_KEY and EAS_PRIVATE_KEY_PATH are both set', () => {
+      vi.stubEnv('EAS_PRIVATE_KEY', 'hamburgers');
+      vi.stubEnv('EAS_PRIVATE_KEY_PATH', 'hotdogs');
+
+      expect(() => new Config()).toThrow(
+        'Only one of the environment variables: EAS_PRIVATE_KEY or EAS_PRIVATE_KEY_PATH must be set',
+      );
+    });
+
+    it('should allow all eas fields to be empty when AUTH is not "eas"', () => {
+      vi.stubEnv('AUTH', 'pat');
+      vi.stubEnv('EAS_ISSUER', undefined);
+      vi.stubEnv('EAS_KEY_ID', undefined);
+      vi.stubEnv('EAS_PRIVATE_KEY', undefined);
+
+      const config = new Config();
+      expect(config.auth).toBe('pat');
+      expect(config.easIssuer).toBe('');
+      expect(config.easKeyId).toBe('');
+      expect(config.easPrivateKey).toBe('');
+    });
+  });
+
   describe('OAuth configuration', () => {
     function stubDefaultOAuthEnvVars(): void {
       vi.stubEnv('OAUTH_ISSUER', 'https://example.com');
