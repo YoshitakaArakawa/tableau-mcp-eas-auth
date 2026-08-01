@@ -1,4 +1,37 @@
- # Tableau MCP
+# Tableau MCP — EAS auth mode fork
+
+> **これは [tableau/tableau-mcp](https://github.com/tableau/tableau-mcp) の実験的フォークです。**
+> 本家プロダクトの情報・Issue・サポートは upstream を参照してください。
+> This is an experimental fork of tableau/tableau-mcp. For the official product, issues, and
+> support, please refer to the upstream repository.
+
+## このフォークがやりたいこと
+
+tableau-mcp の MCP Apps 機能は、チャット UI 内の iframe に Tableau viz を埋め込み表示できる
+(`render-interactive-viz`)。ただし埋め込み用 JWT の署名材料は upstream 4.0.6 時点で
+Connected App / Direct Trust(サイト単位の共有 secret)と UAT(一般の Tableau Cloud サイトでは
+使えない)しかない。
+
+このフォークは第3の署名方式として **EAS(Connected App / OAuth 2.0 Trust = 外部認可サーバー)**
+を実装する(`AUTH=eas`)。MCP サーバー自身を Tableau サイトに EAS として登録し、サーバーが保持する
+RS256 鍵で REST サインイン用 JWT と embed JWT の両方を署名する。ユーザー体験は
+「OAuth リダイレクトで Tableau にログインし、サイトを選ぶだけ」のまま、per-user の埋め込み viz を
+成立させることがゴール。既存の OAuth ログイン層には一切手を入れていない。
+
+### 主な変更
+
+- `AUTH=eas` の追加: `EAS_ISSUER` / `EAS_PRIVATE_KEY(_PATH)` / `EAS_KEY_ID` / `EAS_AUDIENCE`
+- JWKS / IdP メタデータの公開エンドポイント(`/.well-known/jwks.json` ほか)
+- ドキュメント: `docs/docs/configuration/mcp-config/authentication/eas.md`
+
+実装の背景・Tableau Cloud での実測知見(aud の実効値、well-known パスの揺れ、redirect_uri の
+loopback 制約など)・デプロイ構成の注意は
+[PR #1](https://github.com/YoshitakaArakawa/tableau-mcp-eas-auth/pull/1) にまとめてある。
+Tableau Server への読み替えは [.work/notes/tableau-server-eas.md](.work/notes/tableau-server-eas.md) を参照。
+
+以下は upstream のオリジナル README。
+
+---
 
 [![Tableau Supported](https://img.shields.io/badge/Support%20Level-Tableau%20Supported-53bd92.svg)](https://www.tableau.com/support-levels-it-and-developer-tools)
 
