@@ -1,4 +1,4 @@
-# viz 状態スナップショット機能(F+ 案)の実装と検証
+# viz 状態スナップショット機能の実装と検証
 
 日付: 20260802
 対象コミット: 実装 96d25b08 / 検証記録 6114b903
@@ -13,6 +13,35 @@ MCP Apps の `render-interactive-viz` はチャット UI 内 iframe に Tableau 
 
 前提制約: リモート MCP サーバーは複数ポッド・ラウンドロビンでステートレス運用。
 Tableau への書き込みは避けたい(ユーザー要求)。
+
+## 全体アーキテクチャ
+
+登場する実行コンテキストは 4 つ。鍵は「MCP App iframe の JavaScript」が Tableau viz と
+Claude ホストの両方に対する API を持つ唯一の場所だという点で、状態スナップショットの
+ブリッジはここに置くしかない。
+
+```mermaid
+flowchart LR
+    subgraph host["Claude ホスト (Desktop / claude.ai)"]
+        model["モデル<br/>(会話コンテキスト)"]
+        subgraph appframe["MCP App iframe"]
+            appjs["App JS (ext-apps SDK)<br/>vizState ブリッジ"]
+            subgraph vizframe["tableau-viz (入れ子 iframe)"]
+                viz["ダッシュボード描画"]
+            end
+        end
+    end
+    server["tableau-mcp サーバー<br/>(任意のポッド)"]
+    cloud["Tableau Cloud / Server"]
+
+    appjs -- "Embedding API v3<br/>イベント購読・状態読み取り" --> viz
+    appjs -- "updateModelContext<br/>(スナップショット push)" --> model
+    appjs -- "tools/call プロキシ" --> server
+    server -- "REST / VizQL Data Service" --> cloud
+    vizframe -- "viz 本体のロード" --> cloud
+```
+
+動作シーケンス(採用形)は README「Viz 状態スナップショット > 動作の全体像」の図を参照。
 
 ## 変更内容
 
@@ -29,24 +58,36 @@ Tableau への書き込みは避けたい(ユーザー要求)。
 
 ## 設計判断
 
-### 採用: F+ 案(updateModelContext push + VDS 深掘り)
+### 採用: 状態プッシュ + VDS 深掘り方式(検討時の呼称: F+ 案)
 
-App が push するのは「状態 + 予算内データ」のみで、深掘りは既存 `query-datasource`(VDS)。
-サーバーを完全ステートレスに保て、使う機構がすべて実測で動作確認済みのものだけで構成される。
+App が push するのは「状態 + 予算内データ」のみで、深掘りは既存 `query-datasource`
+(VizQL Data Service = VDS)。サーバーを完全ステートレスに保て、使う機構がすべて実測で
+動作確認済みのものだけで構成される。
 
-### 不採用案と理由
+### 検討した全方式と判定
 
-- **D 案(App-Provided Tools)**: モデルが iframe 内ハンドラーを直接呼ぶオンデマンド読み取り。
-  SDK レベルでは動作するが、Claude ホストが非対応であることを実測(hostCapabilities に
-  tools 系なし・登録ツールがモデルに不出現)。draft 仕様限定でもある。ホスト対応後の
-  高速化パスとして温存
-- **E 案(long-poll リレー)**: サーバー定義ツール + iframe が app-only ツールで応答する構成。
-  単一プロセスでは成立するが、複数ポッドではランデブーに共有ストア(Redis 等)が必須になり
-  ステートレス前提と衝突。MCP の MRTR(input_required)が MCP Apps に来た時の正規形として温存
-- **カスタムビュー保存(C2)**: 状態を Tableau に書き込んで REST で読む案。書き込み回避の
-  ユーザー要求により不採用。v2「この状態を覚えて」の明示操作専用に格下げ
+設計調査では 7 方式を比較した。検討時はアルファベットの略称で呼んでいたため、
+コミットメッセージや検証記録に現れる呼称を括弧で併記する。
+
+| 方式(検討時呼称) | 仕組み | 判定 | 決め手 |
+|---|---|---|---|
+| 全量自動 push(A) | 操作のたびに状態+表示データ全量を送信 | 却下 | コンテキスト汚染。操作イベントの網羅も不能 |
+| 共有ボタン(B) | ユーザーが明示操作でスナップショットを会話に注入 | v1 対象外 | 「言及するだけで通じる」体験と不一致 |
+| REST フィルター変換(C1) | push された状態を REST の `vf_` パラメータに変換して再取得 | 部分吸収 | 範囲・相対日付フィルターが `vf_` で表現不能と実測。VDS クエリへの写像に発展して採用案の一部に |
+| カスタムビュー保存(C2) | 状態を Tableau にカスタムビューとして保存し REST で読む | v2 に格下げ | 全部品の動作は実測済みだが、Tableau への書き込み回避というユーザー要求に反する。「この状態を覚えて」の明示操作専用に温存 |
+| App 登録ツール(D) | iframe がモデルから呼べるツールを登録し、必要時に画面状態を直接読ませる Pull 型 | 現状不成立 | SDK レベルでは動作(1〜2ms)するが、Claude ホストが App-Provided Tools 非対応と実測。draft 仕様限定でもある |
+| long-poll リレー(E) | サーバー定義ツールが iframe とランデブーして応答を中継 | 見送り | 複数ポッドでは共有ストア(Redis 等)が必須になり、ステートレス前提と衝突 |
+| 状態プッシュ + VDS(F+) | 軽量な状態 JSON を毎回上書き push し、深掘りだけツールコール | **採用** | 実測済みの部品のみで構成でき、サーバー状態ゼロ・Tableau への書き込みゼロ |
+
+### 不採用案の温存条件
+
+- **App 登録ツール(D)**: ホストが App-Provided Tools を実装したら復活。probe アプリの
+  再実行だけで判定でき、iframe 側の読み取り実装は共通なので移行コストは配線のみ
+- **long-poll リレー(E)**: MCP の MRTR(`input_required`)が MCP Apps 向けルーティングを
+  定義したら、「サーバーがクライアント側情報を追加要求する」公認パターンとして置き換え可能
 - **push を structuredContent で送る案**: ホストが再シリアライズするためバイト数が
-  制御不能になり、30KB 予算(下記)の意味が消える。text block 一本に固定
+  制御不能になり、30KB 予算(下記)の意味が消える。text block 一本に固定(これは方式では
+  なく実装レベルの判断)
 
 ### 予算防御が最重要である理由
 
