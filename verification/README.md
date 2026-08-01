@@ -9,5 +9,7 @@
 
 ## 記録一覧
 
+- [eas-auth/](eas-auth/FINDINGS.md) — EAS 認証(AUTH=eas)で実測確定した Tableau Cloud の挙動
+  (aud 形式・well-known 二重参照・loopback 制約・CIMD 等、ドキュメントに無い事実)
 - [viz-state/](viz-state/ACCEPTANCE.md) — viz 状態スナップショット機能の手動受け入れ
   (実 viz に対する capture→push 経路の実機検証)
