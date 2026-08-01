@@ -124,6 +124,12 @@ frameDomains を尊重するホストでは動作する見込み。
 Embedding API / VDS の制約は [AI-DASHBOARD-NOTES.md](AI-DASHBOARD-NOTES.md) に
 制約メモとしてまとめてある。
 
+### 検証記録
+
+実 viz に対する手動受け入れ(capture→push 経路の実機検証)の結果と、そこで確定した
+事実は [verification/viz-state/ACCEPTANCE.md](verification/viz-state/ACCEPTANCE.md) に
+記録してある。
+
 ## Tableau Server への読み替え
 
 Server では EAS 登録が TSM(サーバー単位)になる、JWKS の公開露出が不要になる、
