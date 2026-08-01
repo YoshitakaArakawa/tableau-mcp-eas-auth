@@ -84,6 +84,36 @@ frameDomains を尊重するホストでは動作する見込み。
 この使い分けを説明するガイダンステキストを返す。`content[0]` は iframe が `JSON.parse` するため
 バイト単位で変更してはいけない。
 
+### 動作の全体像
+
+「状態の把握」と「データの取得」を分離しているのが要点。前者は push 済みのスナップショットで
+即答でき(ツールコール不要)、後者だけがツールコールになる。どちらの経路にも Tableau への
+書き込み・MCP サーバー側の状態保持は無い。
+
+```mermaid
+sequenceDiagram
+    actor U as ユーザー
+    participant V as Tableau viz<br/>(入れ子 iframe)
+    participant A as スナップショットブリッジ<br/>(MCP App iframe)
+    participant H as Claude ホスト
+    participant M as モデル
+    participant S as MCP サーバー
+    participant T as Tableau Cloud
+
+    U->>V: フィルター・パラメーター・選択を操作
+    V-->>A: 変更イベント(debounce 2 秒で settle 待ち)
+    A->>V: 状態と要約データを読み取り<br/>(直列キュー + タイムアウト)
+    A->>H: updateModelContext(スナップショット JSON)
+    Note over H,M: ホストが保持し、モデルは毎ターン参照できる(毎回上書き・累積しない)
+    U->>M: 「いま画面に出ている数字はどう?」
+    M-->>U: スナップショットを参照して即答(ツールコール不要)
+    U->>M: 「別のカットで深掘りして」
+    M->>S: query-datasource(画面状態をクエリ条件に翻訳)
+    S->>T: VizQL Data Service(ステートレス)
+    T-->>M: 集計結果
+    M-->>U: 画面状態を踏まえた分析
+```
+
 ### ウィジェット恒久破損(brick)という失敗モード
 
 **これは運用上もっとも重要な注意点である。** Claude ホストはウィジェットのモデルコンテキストに

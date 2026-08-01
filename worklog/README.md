@@ -19,4 +19,4 @@ PR 単位の作業記録(背景・設計判断・検証)を置くフォルダ。
 
 - [20260802-repo-conventions.md](20260802-repo-conventions.md) — 本規約(worklog/・verification/)の導入
 - [20260802-viz-state-snapshot.md](20260802-viz-state-snapshot.md) —
-  viz 状態スナップショット機能(F+ 案)の実装・検証・ドキュメント整備
+  viz 状態スナップショット機能の実装・検証・ドキュメント整備
