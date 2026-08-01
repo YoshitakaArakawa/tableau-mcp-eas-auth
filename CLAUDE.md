@@ -281,3 +281,30 @@ npm run docs:start   # Start dev server
 ```
 
 Official docs: https://tableau.github.io/tableau-mcp/
+
+## Fork Conventions
+
+This section applies to this fork only (kept as a trailing section so upstream
+merges into the body above stay conflict-free).
+
+### worklog/ — per-PR work records
+
+For any PR that carries background, design decisions, or verification (anything
+beyond a trivial fix), write `worklog/YYYYMMDD-<slug>.md` on the branch BEFORE
+opening the PR. The worklog file is the canonical record; the PR body is a
+summary of it plus a link. Structure: background / changes / design decisions
+(including rejected alternatives and why) / verification (link into
+`verification/`) / follow-ups. See `worklog/README.md`.
+
+### verification/ — manual verification records
+
+Per-feature records of facts established against real systems — the assumptions
+that mock-based automated tests cannot verify. Harnesses stay local
+(git-ignored); each record carries a reproduction outline instead. See
+`verification/README.md`.
+
+### Sensitive information
+
+Never commit personal email addresses, machine-local paths, real site names,
+LUIDs, tokens, or personal deployment URLs — in code, docs, worklogs, or commit
+messages. Use environment variables at runtime and placeholders in examples.
