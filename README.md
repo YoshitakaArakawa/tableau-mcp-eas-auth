@@ -21,7 +21,9 @@ tableau-mcp の MCP Apps 機能は、チャット UI 内の iframe に Tableau v
 
 - **direct-trust**(Connected App / Direct Trust): サイト単位の共有 secret(HS256)。動作するが、
   site-wide の secret をサーバーに置く運用になる
-- **uat**(User Access Token): Tableau 内部向けの仕組みで、一般の Tableau Cloud サイトでは使えない
+- **uat**([Unified Access Token](https://help.tableau.com/current/api/cloud-manager/en-us/docs/unified_access_tokens.html)):
+  Tableau Cloud Manager 経由で組織管理者が構成する仕組み(2025年12月導入)。Cloud Manager への
+  アクセス権が前提で、サイト管理者の権限だけでは完結しない
 
 per-user かつ一般の Tableau Cloud サイトで使える署名方式が存在しない。これが EAS を第3の方式として
 実装した理由である。EAS はサーバー内部への「署名器」の追加であり、既存の OAuth ログイン層
