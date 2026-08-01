@@ -68,7 +68,7 @@ Two MCP transport modes defined in `src/transports.ts`:
 ### Authentication Types
 Configured via `AUTH` env var (see `src/config.ts`):
 - **pat**: Personal Access Token (PAT_NAME + PAT_VALUE)
-- **uat**: User Access Token with JWT
+- **uat**: Unified Access Token with JWT (Tableau Cloud Manager)
 - **direct-trust**: Connected App direct trust (CONNECTED_APP_* vars)
 - **oauth**: OAuth 2.0 flow (embedded or Tableau authz server)
 
