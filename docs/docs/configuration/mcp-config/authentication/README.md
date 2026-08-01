@@ -12,3 +12,5 @@ There are a couple different ways to authenticate to Tableau.
 3. Use Tableau [Unified Access Tokens](uat.md).
 4. Use Tableau [OAuth](oauth.md).
 5. Use [Passthrough Authentication](passthrough.md).
+6. Use a Tableau Connected App with OAuth 2.0 Trust, with the MCP server acting as the
+   [External Authorization Server](eas.md).

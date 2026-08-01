@@ -55,6 +55,21 @@ export class AuthenticationMethods extends Methods<typeof authenticationApis> {
                     additionalPayload: authConfig.additionalPayload,
                   }),
                 };
+              case 'eas':
+                return {
+                  jwt: await getJwt({
+                    username: authConfig.username,
+                    config: {
+                      type: 'eas',
+                      issuer: authConfig.issuer,
+                      audience: authConfig.audience,
+                      privateKey: authConfig.privateKey,
+                      keyId: authConfig.keyId,
+                    },
+                    scopes: authConfig.scopes,
+                    additionalPayload: authConfig.additionalPayload,
+                  }),
+                };
               case 'uat':
                 return {
                   isUat: true,

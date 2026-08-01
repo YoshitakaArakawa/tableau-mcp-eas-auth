@@ -1,5 +1,5 @@
 {
-  "mcp-apps": false,
+  "mcp-apps": true,
   "view-file-mode": false,
   "view-data-file-mode": false
 }

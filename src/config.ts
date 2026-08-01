@@ -13,7 +13,7 @@ import invariant from './utils/invariant.js';
 import { milliseconds } from './utils/milliseconds.js';
 import { parseNumber } from './utils/parseNumber.js';
 
-const authTypes = ['pat', 'uat', 'direct-trust', 'oauth'] as const;
+const authTypes = ['pat', 'uat', 'direct-trust', 'eas', 'oauth'] as const;
 type AuthType = (typeof authTypes)[number];
 
 function isAuthType(auth: unknown): auth is AuthType {
@@ -39,6 +39,10 @@ export class Config extends BaseConfig {
   uatUsernameClaimName: string;
   uatPrivateKey: string;
   uatKeyId: string;
+  easIssuer: string;
+  easPrivateKey: string;
+  easKeyId: string;
+  easAudience: string;
   jwtAdditionalPayload: string;
   datasourceCredentials: string;
   disableSessionManagement: boolean;
@@ -112,6 +116,11 @@ export class Config extends BaseConfig {
       UAT_PRIVATE_KEY: uatPrivateKey,
       UAT_PRIVATE_KEY_PATH: uatPrivateKeyPath,
       UAT_KEY_ID: uatKeyId,
+      EAS_ISSUER: easIssuer,
+      EAS_PRIVATE_KEY: easPrivateKey,
+      EAS_PRIVATE_KEY_PATH: easPrivateKeyPath,
+      EAS_KEY_ID: easKeyId,
+      EAS_AUDIENCE: easAudience,
       JWT_ADDITIONAL_PAYLOAD: jwtAdditionalPayload,
       DATASOURCE_CREDENTIALS: datasourceCredentials,
       DISABLE_SESSION_MANAGEMENT: disableSessionManagement,
@@ -441,6 +450,40 @@ export class Config extends BaseConfig {
       ) {
         throw new Error(`UAT private key path does not exist: ${uatPrivateKeyPath}`);
       }
+    } else if (this.auth === 'eas') {
+      invariant(jwtSubClaim, 'The environment variable JWT_SUB_CLAIM is not set');
+      invariant(easIssuer, 'The environment variable EAS_ISSUER is not set');
+      invariant(easKeyId, 'The environment variable EAS_KEY_ID is not set');
+
+      // Tableau requires the `iss` claim of an EAS JWT to be an HTTPS URI matching the Issuer URL
+      // registered on the connected app, and fetches the IdP metadata from it over the internet.
+      if (!easIssuer.startsWith('https://')) {
+        throw new Error(
+          `The environment variable EAS_ISSUER must start with "https://" because Tableau requires the issuer to be an HTTPS URI: ${easIssuer}`,
+        );
+      }
+
+      jwtUsername = jwtSubClaim ?? '';
+
+      if (!easPrivateKey && !easPrivateKeyPath) {
+        throw new Error(
+          'One of the environment variables: EAS_PRIVATE_KEY_PATH or EAS_PRIVATE_KEY must be set',
+        );
+      }
+
+      if (easPrivateKey && easPrivateKeyPath) {
+        throw new Error(
+          'Only one of the environment variables: EAS_PRIVATE_KEY or EAS_PRIVATE_KEY_PATH must be set',
+        );
+      }
+
+      if (
+        easPrivateKeyPath &&
+        process.env.TABLEAU_MCP_TEST !== 'true' &&
+        !existsSync(easPrivateKeyPath)
+      ) {
+        throw new Error(`EAS private key path does not exist: ${easPrivateKeyPath}`);
+      }
     }
 
     this.server = server ?? '';
@@ -469,6 +512,14 @@ export class Config extends BaseConfig {
     this.uatPrivateKey =
       uatPrivateKey || (uatPrivateKeyPath ? readFileSync(uatPrivateKeyPath, 'utf8') : '');
     this.uatKeyId = uatKeyId ?? '';
+    this.easIssuer = easIssuer ?? '';
+    this.easPrivateKey =
+      easPrivateKey || (easPrivateKeyPath ? readFileSync(easPrivateKeyPath, 'utf8') : '');
+    this.easKeyId = easKeyId ?? '';
+    // The claim table of the Tableau EAS docs specifies `tableau:<site_luid>`, but the
+    // troubleshooting section of the same page still refers to the legacy `tableau` value, so the
+    // audience is configurable rather than hard-coded.
+    this.easAudience = easAudience || 'tableau';
     this.jwtAdditionalPayload = jwtAdditionalPayload || '{}';
   }
 }

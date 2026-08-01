@@ -13,6 +13,7 @@ export type EmbedTokenError = 'embed-token-not-available';
  * provided AuthConfig:
  *   - direct-trust: sign an embed JWT via getJwt with connected-app config.
  *   - uat: sign an embed JWT from the UAT RS256 key via getJwt.
+ *   - eas: sign an embed JWT from the EAS RS256 key via getJwt.
  *   - pat: return not-available (caller must handle Bearer pass-through
  *     or oauth scenarios before calling this resolver).
  *
@@ -48,6 +49,22 @@ export async function resolveEmbedToken({
           tenantId: authConfig.tenantId,
           issuer: authConfig.issuer,
           usernameClaimName: authConfig.usernameClaimName,
+          privateKey: authConfig.privateKey,
+          keyId: authConfig.keyId,
+        },
+        scopes: new Set([EMBED_SCOPE]),
+        additionalPayload: authConfig.additionalPayload,
+      });
+      return Ok({ token });
+    }
+
+    case 'eas': {
+      const token = await getJwt({
+        username: authConfig.username,
+        config: {
+          type: 'eas',
+          issuer: authConfig.issuer,
+          audience: authConfig.audience,
           privateKey: authConfig.privateKey,
           keyId: authConfig.keyId,
         },

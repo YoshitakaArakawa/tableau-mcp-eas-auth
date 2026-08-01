@@ -17,6 +17,7 @@ import { setNotificationLevel } from '../logging/notification.js';
 import { Server } from '../server.js';
 import { WebMcpServer } from '../server.web.js';
 import { createSession, getSession, Session } from '../sessions.js';
+import { setupEasWellKnownRoutes } from './eas/wellKnown.js';
 import { latencyMiddleware } from './latencyMiddleware.js';
 import { handlePingRequest } from './middleware.js';
 import { getTableauAuthInfo } from './oauth/getTableauAuthInfo.js';
@@ -66,6 +67,12 @@ export async function startExpressServer({
   const middleware: Array<RequestHandler> = [handlePingRequest];
   if (config.enablePassthroughAuth) {
     middleware.push(passthroughAuthMiddleware());
+  }
+
+  if (config.auth === 'eas') {
+    // Tableau fetches these anonymously from the public internet to discover the EAS signing key,
+    // so they're registered ahead of the OAuth routes and carry no auth middleware.
+    await setupEasWellKnownRoutes(app, config);
   }
 
   if (config.oauth.enabled) {

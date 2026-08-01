@@ -172,7 +172,8 @@ export const useRestApi = async <T>(
     return await callback(restApi);
   } finally {
     if (signOutWhenCompleted) {
-      // Tableau REST sessions for 'pat' and 'direct-trust' are intentionally ephemeral.
+      // Tableau REST sessions for 'pat' and the JWT sign-in modes ('direct-trust', 'uat', 'eas')
+      // are intentionally ephemeral.
       // Sessions for 'oauth' and 'passthrough' are not. Signing out would invalidate the session,
       // preventing the access token from being reused for subsequent requests.
       //

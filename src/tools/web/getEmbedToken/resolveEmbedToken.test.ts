@@ -103,4 +103,48 @@ describe('resolveEmbedToken', () => {
       expect(payload.team).toBe('engineering');
     });
   });
+
+  describe('eas embed token', async () => {
+    const { privateKey } = await generateKeyPair('RS256', { extractable: true });
+    const privateKeyPem = await exportPKCS8(privateKey);
+
+    const easAuthConfig: AuthConfig = {
+      type: 'eas',
+      siteName: 'site',
+      username: 'embed-user@example.com',
+      issuer: 'https://mcp.example.com',
+      audience: 'tableau',
+      privateKey: privateKeyPem,
+      keyId: 'test-key-id',
+      scopes: new Set(),
+    };
+
+    it('signs an eas embed JWT from the EAS key with the embed scope', async () => {
+      const result = await resolveEmbedToken({
+        authConfig: easAuthConfig,
+      });
+
+      expect(result.isOk()).toBe(true);
+      const payload = decodeJwt(result.unwrap().token);
+      expect(payload.scp).toEqual([EMBED_SCOPE]);
+      expect(payload.sub).toBe('embed-user@example.com');
+      expect(payload.iss).toBe('https://mcp.example.com');
+      expect(payload.aud).toBe('tableau');
+    });
+
+    it('includes additionalPayload in the eas JWT', async () => {
+      const easConfigWithPayload: AuthConfig = {
+        ...easAuthConfig,
+        additionalPayload: { team: 'engineering' },
+      };
+
+      const result = await resolveEmbedToken({
+        authConfig: easConfigWithPayload,
+      });
+
+      expect(result.isOk()).toBe(true);
+      const payload = decodeJwt(result.unwrap().token);
+      expect(payload.team).toBe('engineering');
+    });
+  });
 });

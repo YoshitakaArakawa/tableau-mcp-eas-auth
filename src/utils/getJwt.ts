@@ -23,6 +23,13 @@ export async function getJwt({
         usernameClaimName: string;
         privateKey: string;
         keyId: string;
+      }
+    | {
+        type: 'eas';
+        issuer: string;
+        audience: string;
+        privateKey: string;
+        keyId: string;
       };
 
   scopes: Set<string>;
@@ -59,6 +66,16 @@ export async function getJwt({
     return await new SignJWT(payload)
       .setProtectedHeader(header)
       .sign(new TextEncoder().encode(config.secretValue));
+  } else if (config.type === 'eas') {
+    payload.sub = username;
+    // Tableau rejects an EAS JWT whose `jti` has already been seen (error 10091 JTI_ALREADY_USED),
+    // so it must be unique for every token.
+    payload.jti = randomUUID();
+    payload.iss = config.issuer;
+    payload.aud = config.audience;
+
+    const privateKey = await importPKCS8(config.privateKey, 'RS256');
+    return await new SignJWT(payload).setProtectedHeader(header).sign(privateKey);
   } else {
     payload[config.usernameClaimName] = username;
     payload.jti = `${config.issuer}-${payload.iat}`;

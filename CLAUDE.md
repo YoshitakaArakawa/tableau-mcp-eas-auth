@@ -202,7 +202,7 @@ Flow:
 Key variables (see `env.example.list` and `.env`):
 - `SERVER`: Tableau server URL
 - `SITE_NAME`: Tableau site name
-- `AUTH`: Authentication type (pat/uat/direct-trust/oauth)
+- `AUTH`: Authentication type (pat/uat/direct-trust/eas/oauth)
 - `TRANSPORT`: Transport mode (stdio/http)
 - `PAT_NAME` / `PAT_VALUE`: PAT credentials
 - `HTTP_PORT_ENV_VAR_NAME`: Port env var name (default: PORT)

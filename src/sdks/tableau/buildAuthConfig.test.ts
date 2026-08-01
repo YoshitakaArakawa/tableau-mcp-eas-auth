@@ -87,6 +87,37 @@ describe('buildAuthConfig', () => {
     });
   });
 
+  it('builds AuthConfig for eas mode with scopes', () => {
+    const extra = getMockRequestHandlerExtra();
+    extra.config.auth = 'eas';
+    extra.config.siteName = 'test-site';
+    extra.config.jwtUsername = 'eas-user@example.com';
+    extra.config.easIssuer = 'https://mcp.example.com';
+    extra.config.easAudience = 'tableau';
+    extra.config.easPrivateKey = 'mock-private-key';
+    extra.config.easKeyId = 'key-id-789';
+    extra.config.jwtAdditionalPayload = '{"role":"admin"}';
+
+    const scopes = new Set(['tableau:content:read']);
+    const result = buildAuthConfig({
+      config: extra.config,
+      tableauAuthInfo: undefined,
+      scopes,
+    });
+
+    expect(result).toEqual({
+      type: 'eas',
+      siteName: 'test-site',
+      username: 'eas-user@example.com',
+      issuer: 'https://mcp.example.com',
+      audience: 'tableau',
+      privateKey: 'mock-private-key',
+      keyId: 'key-id-789',
+      scopes,
+      additionalPayload: { role: 'admin' },
+    });
+  });
+
   it('returns null for oauth mode', () => {
     const extra = getMockRequestHandlerExtra();
     extra.config.auth = 'oauth';
