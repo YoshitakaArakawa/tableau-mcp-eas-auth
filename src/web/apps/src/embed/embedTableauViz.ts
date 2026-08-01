@@ -30,15 +30,21 @@ export function createTableauVizElement(vizUrl: string, token: string): HTMLElem
  * @param vizUrl - The URL of the Tableau view to embed
  * @param token - The OAuth Bearer token for authentication
  * @param onError - Optional callback to handle viz load errors
+ * @returns The mounted tableau-viz element, or undefined when the container is missing.
+ *   Callers need the element itself to subscribe to viz events.
  */
-export function embedTableauViz(vizUrl: string, token: string, onError?: () => void): void {
+export function embedTableauViz(
+  vizUrl: string,
+  token: string,
+  onError?: () => void,
+): HTMLElement | undefined {
   const container = document.getElementById(TABLEAU_VIZ_CONTAINER_ID);
 
   if (!container) {
     console.error(
       `[mcp-app] container element with id "${TABLEAU_VIZ_CONTAINER_ID}" not found; cannot embed viz`,
     );
-    return;
+    return undefined;
   }
 
   // Create and replace any existing viz element (idempotent)
@@ -73,4 +79,6 @@ export function embedTableauViz(vizUrl: string, token: string, onError?: () => v
   });
 
   container.replaceChildren(viz);
+
+  return viz;
 }

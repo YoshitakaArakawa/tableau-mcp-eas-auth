@@ -219,6 +219,31 @@ describe('embedTableauViz', () => {
     expect(vizElement.style.height).toBe('800px');
   });
 
+  it('should return the mounted viz element', () => {
+    const vizUrl = 'https://prod-uswest-c.online.tableau.com/site/mysite/views/workbook/view';
+    const token = 'test-token-123';
+
+    // The caller needs the element itself to subscribe to viz events, so the mounted element -
+    // not a copy - has to come back.
+    const returned = embedTableauViz(vizUrl, token);
+
+    const container = document.getElementById('tableauVizContainer');
+    expect(returned).toBe(container?.querySelector('tableau-viz'));
+    expect(returned?.getAttribute('src')).toBe(vizUrl);
+  });
+
+  it('should return undefined when tableauVizContainer not found', () => {
+    const container = document.getElementById('tableauVizContainer');
+    container?.remove();
+
+    const returned = embedTableauViz(
+      'https://prod-uswest-c.online.tableau.com/site/mysite/views/workbook/view',
+      'test-token-123',
+    );
+
+    expect(returned).toBeUndefined();
+  });
+
   it('should call onError callback when vizloaderror event is dispatched', () => {
     const vizUrl = 'https://prod-uswest-c.online.tableau.com/site/mysite/views/workbook/view';
     const token = 'test-token-123';
