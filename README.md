@@ -10,7 +10,8 @@
 追加する。MCP サーバー自身を Tableau サイトに EAS として登録し、サーバーが保持する RS256 鍵で
 REST サインイン用 JWT と埋め込み用 JWT の両方を署名する。ゴールは、ユーザー体験を
 「OAuth リダイレクトで Tableau にログインし、サイトを選ぶだけ」に保ったまま、MCP Apps の
-per-user 埋め込み viz を成立させること。
+per-user 埋め込み viz を成立させること。設定方法と環境変数は
+[docs/.../authentication/eas.md](docs/docs/configuration/mcp-config/authentication/eas.md) を参照。
 
 ## 背景 — なぜ EAS モードが必要か
 
@@ -25,16 +26,6 @@ tableau-mcp の MCP Apps 機能は、チャット UI 内の iframe に Tableau v
 per-user かつ一般の Tableau Cloud サイトで使える署名方式が存在しない。これが EAS を第3の方式として
 実装した理由である。EAS はサーバー内部への「署名器」の追加であり、既存の OAuth ログイン層
 (`src/server/oauth/`)には一切手を入れていない。
-
-## 変更内容
-
-- `AUTH=eas` の追加。環境変数は `EAS_ISSUER` / `EAS_PRIVATE_KEY`(または `_PATH`)/ `EAS_KEY_ID` /
-  `EAS_AUDIENCE`。設定の詳細は [docs/.../authentication/eas.md](docs/docs/configuration/mcp-config/authentication/eas.md)
-- JWKS / IdP メタデータの公開エンドポイント(新規モジュール `src/server/eas/wellKnown.ts`):
-  `/.well-known/jwks.json` に公開鍵、`/.well-known/openid-configuration` と
-  `/.well-known/oauth-authorization-server` の**両方**に `{issuer, jwks_uri}` を serve する
-  (理由は下記の実測知見)
-- 署名分岐(`getJwt` / `authConfig` / REST サインイン / embed トークン解決)への eas ケース追加
 
 ## Tableau Cloud で実測して確定した仕様
 
@@ -68,7 +59,7 @@ per-user かつ一般の Tableau Cloud サイトで使える署名方式が存�
   (claude.ai のカスタムコネクタ等)を使う
 - サーバーの配置リージョンは Tableau ポッドの近傍を推奨(JWKS fetch のレイテンシ対策)
 
-## 既知の制約(サーバー外)
+## 既知の制約(サーバー外、2026年8月時点)
 
 Claude Desktop / claude.ai では、MCP Apps 内の viz 表示だけが
 「Authentication was unsuccessful」で失敗する。これはサーバー側の問題ではない。
@@ -84,11 +75,6 @@ frameDomains を尊重するホストでは動作する見込み。
 Server では EAS 登録が TSM(サーバー単位)になる、JWKS の公開露出が不要になる、
 埋め込み認可サーバーモードが TSM 設定でリモートでも成立する、など複数の点が変わる。
 [.work/notes/tableau-server-eas.md](.work/notes/tableau-server-eas.md) に整理してある(未実測)。
-
-## 変更履歴
-
-実装単位の diff とテスト計画は
-[PR #1](https://github.com/YoshitakaArakawa/tableau-mcp-eas-auth/pull/1) を参照。
 
 ## License
 
