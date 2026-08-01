@@ -46,3 +46,10 @@ src/web/apps/dist/
 # Loose local report / probe artifacts (never commit)
 *.tsv
 stale-*.md
+
+# Fork-local working areas and machine-local files (never commit)
+.work/eas/
+.work/notes/
+.work/design-notes/
+.playwright-mcp/
+fly.toml
