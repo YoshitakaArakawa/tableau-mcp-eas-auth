@@ -51,3 +51,4 @@ stale-*.md
 .work/
 .playwright-mcp/
 fly.toml
+CLAUDE.local.md
