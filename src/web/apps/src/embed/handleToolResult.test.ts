@@ -13,12 +13,14 @@ vi.mock('./embedTableauViz.js');
 vi.mock('./loadTableauEmbeddingApi.js');
 vi.mock('./openInTableauLink.js');
 vi.mock('../shared/recordEventClient.js');
+vi.mock('./vizState/vizStateBridge.js');
 
 import { recordEvent } from '../shared/recordEventClient.js';
 import { embedTableauViz } from './embedTableauViz.js';
 import { callGetEmbedTokenTool } from './getEmbedTokenToolClient.js';
 import { loadTableauEmbeddingApi } from './loadTableauEmbeddingApi.js';
 import { setupOpenInTableauLink } from './openInTableauLink.js';
+import { startVizStateBridge } from './vizState/vizStateBridge.js';
 
 describe('handleToolResult', () => {
   let mockApp: App;
@@ -285,6 +287,7 @@ describe('handleToolResult', () => {
       container?.replaceChildren(viz);
       // Simulate runtime vizloaderror event
       onError?.();
+      return viz;
     });
 
     await handleToolResult(mockApp, validResult);
@@ -321,7 +324,7 @@ describe('handleToolResult', () => {
     };
 
     vi.mocked(callGetEmbedTokenTool).mockResolvedValue('test-token-123');
-    vi.mocked(embedTableauViz).mockImplementation(() => {});
+    vi.mocked(embedTableauViz).mockImplementation(() => undefined);
     vi.mocked(setupOpenInTableauLink).mockImplementation(() => {});
 
     await handleToolResult(mockApp, validResult);
@@ -381,7 +384,9 @@ describe('handleToolResult', () => {
     vi.mocked(callGetEmbedTokenTool).mockResolvedValue('test-token-123');
     vi.mocked(embedTableauViz).mockImplementation((_url, _token) => {
       const container = document.getElementById('tableauVizContainer');
-      container?.replaceChildren(document.createElement('tableau-viz'));
+      const viz = document.createElement('tableau-viz');
+      container?.replaceChildren(viz);
+      return viz;
     });
     vi.mocked(setupOpenInTableauLink).mockImplementation(() => {});
 
@@ -420,5 +425,164 @@ describe('handleToolResult', () => {
     await new Promise((r) => setTimeout(r, 0));
 
     expect(vi.mocked(recordEvent)).toHaveBeenCalledWith(mockApp, 'TOOL_ERROR', undefined);
+  });
+});
+
+describe('handleToolResult viz state bridge', () => {
+  let mockApp: App;
+
+  const VIEW_URL = 'https://prod-uswest-c.online.tableau.com/site/mysite/views/workbook/view';
+
+  /** A delivery as the render tools send it: payload block first, guidance text block second. */
+  function makeResult(data?: Record<string, unknown>): CallToolResult {
+    return {
+      content: [
+        { type: 'text', text: JSON.stringify(data ? { url: VIEW_URL, data } : { url: VIEW_URL }) },
+        { type: 'text', text: 'Guidance for the model about the rendered viz.' },
+      ],
+    };
+  }
+
+  /** Mounts a real element so the handler has something to hand the bridge. */
+  function mountViz(): void {
+    vi.mocked(embedTableauViz).mockImplementation(() => {
+      const container = document.getElementById('tableauVizContainer');
+      const viz = document.createElement('tableau-viz');
+      container?.replaceChildren(viz);
+      return viz;
+    });
+  }
+
+  beforeEach(() => {
+    const main = document.createElement('div');
+    main.className = 'main';
+    const container = document.createElement('div');
+    container.id = 'tableauVizContainer';
+    main.appendChild(container);
+    document.body.appendChild(main);
+
+    mockApp = {
+      getHostCapabilities: vi.fn().mockReturnValue({ serverTools: {} }),
+      callServerTool: vi.fn(),
+    } as unknown as App;
+
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(loadTableauEmbeddingApi).mockResolvedValue(undefined);
+    vi.mocked(callGetEmbedTokenTool).mockResolvedValue('test-token-123');
+    vi.mocked(setupOpenInTableauLink).mockImplementation(() => {});
+    vi.mocked(startVizStateBridge).mockReturnValue(() => {});
+    mountViz();
+  });
+
+  afterEach(() => {
+    document.body.replaceChildren();
+    vi.restoreAllMocks();
+  });
+
+  it('starts the bridge with a view identity when the payload names a view', async () => {
+    await handleToolResult(
+      mockApp,
+      makeResult({ luid: 'view-luid', objectType: 'view', name: 'Sales' }),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(vi.mocked(startVizStateBridge)).toHaveBeenCalledTimes(1);
+
+    const options = vi.mocked(startVizStateBridge).mock.calls[0][0];
+    expect(options.app).toBe(mockApp);
+    expect(options.viz).toBe(document.querySelector('tableau-viz'));
+    expect(options.identity).toEqual({
+      view: { luid: 'view-luid', name: 'Sales' },
+      workbook: {},
+    });
+  });
+
+  it('starts the bridge with a workbook identity when the payload names a workbook', async () => {
+    await handleToolResult(
+      mockApp,
+      makeResult({ luid: 'wb-luid', objectType: 'workbook', name: 'Superstore' }),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(vi.mocked(startVizStateBridge).mock.calls[0][0].identity).toEqual({
+      workbook: { luid: 'wb-luid', name: 'Superstore' },
+      view: {},
+    });
+  });
+
+  it('renders without starting the bridge when the payload carries no identity', async () => {
+    await handleToolResult(mockApp, makeResult());
+    await new Promise((r) => setTimeout(r, 0));
+
+    const container = document.getElementById('tableauVizContainer');
+    expect(container?.querySelector('tableau-viz')).toBeTruthy();
+    expect(container?.querySelector('.mcp-app-error')).toBeNull();
+    expect(vi.mocked(startVizStateBridge)).not.toHaveBeenCalled();
+  });
+
+  it('disposes the previous bridge before starting one on the re-mounted element', async () => {
+    const disposeFirst = vi.fn();
+    const disposeSecond = vi.fn();
+    vi.mocked(startVizStateBridge)
+      .mockReturnValueOnce(disposeFirst)
+      .mockReturnValueOnce(disposeSecond);
+
+    const result = makeResult({ luid: 'view-luid', objectType: 'view', name: 'Sales' });
+
+    await handleToolResult(mockApp, result);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(disposeFirst).not.toHaveBeenCalled();
+
+    await handleToolResult(mockApp, result);
+    await new Promise((r) => setTimeout(r, 0));
+
+    // The first element was orphaned by the re-embed, so its bridge must be stopped.
+    expect(disposeFirst).toHaveBeenCalledTimes(1);
+    expect(disposeSecond).not.toHaveBeenCalled();
+    expect(vi.mocked(startVizStateBridge)).toHaveBeenCalledTimes(2);
+  });
+
+  it('still renders the viz when starting the bridge throws', async () => {
+    vi.mocked(startVizStateBridge).mockImplementation(() => {
+      throw new Error('bridge exploded');
+    });
+
+    await handleToolResult(
+      mockApp,
+      makeResult({ luid: 'view-luid', objectType: 'view', name: 'Sales' }),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+
+    const container = document.getElementById('tableauVizContainer');
+    expect(container?.querySelector('tableau-viz')).toBeTruthy();
+    expect(container?.querySelector('.mcp-app-error')).toBeNull();
+    expect(vi.mocked(recordEvent)).not.toHaveBeenCalled();
+  });
+
+  it('does not start the bridge when the container was missing and no element was mounted', async () => {
+    vi.mocked(embedTableauViz).mockReturnValue(undefined);
+
+    await handleToolResult(
+      mockApp,
+      makeResult({ luid: 'view-luid', objectType: 'view', name: 'Sales' }),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(vi.mocked(startVizStateBridge)).not.toHaveBeenCalled();
+  });
+
+  it('renders without a bridge when the identity block is an unrecognized shape', async () => {
+    await handleToolResult(
+      mockApp,
+      makeResult({ luid: 'x-luid', objectType: 'datasource', name: 'Sales' }),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+
+    // An identity this client cannot map costs the bridge, never the render.
+    const container = document.getElementById('tableauVizContainer');
+    expect(container?.querySelector('tableau-viz')).toBeTruthy();
+    expect(container?.querySelector('.mcp-app-error')).toBeNull();
+    expect(vi.mocked(startVizStateBridge)).not.toHaveBeenCalled();
   });
 });

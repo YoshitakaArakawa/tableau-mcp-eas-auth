@@ -8,11 +8,37 @@ import { embedTableauViz } from './embedTableauViz.js';
 import { callGetEmbedTokenTool } from './getEmbedTokenToolClient.js';
 import { loadTableauEmbeddingApi } from './loadTableauEmbeddingApi.js';
 import { setupOpenInTableauLink } from './openInTableauLink.js';
+import type { VizIdentity } from './vizState/captureVizState.js';
+import type { TableauVizElement } from './vizState/embeddingApiTypes.js';
+import { startVizStateBridge } from './vizState/vizStateBridge.js';
 
-const urlSchema = z.object({
+/**
+ * The first content block of a render tool result.
+ *
+ * `data` is optional on purpose: the identity block is an addition of this server, and a delivery
+ * from another or older server carries only the URL. Rendering must not depend on it — its absence
+ * costs the viz state bridge, nothing else. `.catch` extends that to a `data` block that is present
+ * but not the shape expected here (a future object type, say): it degrades to no bridge, never to a
+ * PARSE_ERROR that would cost the user the viz they asked for.
+ */
+const renderPayloadSchema = z.object({
   url: z.string().url(),
+  data: z
+    .object({
+      luid: z.string(),
+      objectType: z.enum(['workbook', 'view']),
+      name: z.string(),
+    })
+    .optional()
+    .catch(undefined),
 });
 
+export type RenderPayload = z.infer<typeof renderPayloadSchema>;
+
+/**
+ * Tolerates extra content blocks: the render tools append a guidance text block after the payload,
+ * and future blocks must not turn a good delivery into a PARSE_ERROR.
+ */
 const callToolResultSchema = z.object({
   content: z
     .array(
@@ -25,16 +51,36 @@ const callToolResultSchema = z.object({
   isError: z.boolean().optional(),
 });
 
+/** The bridge for the currently mounted viz, if any. Module-level because deliveries are too. */
+let disposeBridge: (() => void) | undefined;
+
 /**
- * Extracts the view URL from tool result content
+ * Extracts the render payload (view URL, plus the content identity when the server sent one) from
+ * the first content block of a tool result.
  */
-export function extractUrlObjectFromResult(result: CallToolResult): string {
+export function extractRenderPayloadFromResult(result: CallToolResult): RenderPayload {
   const validated = callToolResultSchema.parse(result);
   const content = validated.content[0];
 
   const data = JSON.parse(content.text);
-  const { url } = urlSchema.parse(data);
-  return url;
+  return renderPayloadSchema.parse(data);
+}
+
+/**
+ * Extracts the view URL from tool result content
+ */
+export function extractUrlObjectFromResult(result: CallToolResult): string {
+  return extractRenderPayloadFromResult(result).url;
+}
+
+/**
+ * Maps the server's content identity onto the capture identity. A luid is only ever attributed to
+ * the object type the server actually named — an unknown identity stays absent rather than invented.
+ */
+export function toVizIdentity(data: NonNullable<RenderPayload['data']>): VizIdentity {
+  return data.objectType === 'view'
+    ? { view: { luid: data.luid, name: data.name }, workbook: {} }
+    : { workbook: { luid: data.luid, name: data.name }, view: {} };
 }
 
 /**
@@ -69,13 +115,15 @@ export async function handleToolResult(app: App, result: CallToolResult): Promis
   }
 
   // Parse failure
-  let viewUrl: string;
+  let payload: RenderPayload;
   try {
-    viewUrl = extractUrlObjectFromResult(result);
+    payload = extractRenderPayloadFromResult(result);
   } catch (e) {
     showError('PARSE_ERROR', e, app);
     return;
   }
+
+  const viewUrl = payload.url;
 
   // Embedding API load failure
   try {
@@ -95,7 +143,27 @@ export async function handleToolResult(app: App, result: CallToolResult): Promis
   }
 
   // Auth failure (runtime) - handled by onError callback
-  embedTableauViz(viewUrl, token, () => showError('AUTH_ERROR', undefined, app));
+  const viz = embedTableauViz(viewUrl, token, () => showError('AUTH_ERROR', undefined, app));
+
+  // The host can re-deliver a tool result on re-mount, and `embedTableauViz` replaces the
+  // container's children — the previous element is orphaned along with its listeners, so the
+  // bridge watching it has to be stopped before a new one is started on the new element.
+  disposeBridge?.();
+  disposeBridge = undefined;
+
+  if (viz && payload.data) {
+    try {
+      disposeBridge = startVizStateBridge({
+        app,
+        viz: viz as TableauVizElement,
+        identity: toVizIdentity(payload.data),
+      });
+    } catch (e) {
+      // State capture is an enhancement. A failure to start it must never cost the user the viz
+      // they asked for, so it is logged and nothing else.
+      console.error('[mcp-app] failed to start the viz state bridge', e);
+    }
+  }
 
   const main = document.querySelector('.main');
   if (main) {

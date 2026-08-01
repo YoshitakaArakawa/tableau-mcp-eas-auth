@@ -72,6 +72,58 @@ Claude Desktop / claude.ai では、MCP Apps 内の viz 表示だけが
 ([anthropics/claude-ai-mcp#40](https://github.com/anthropics/claude-ai-mcp/issues/40))。
 frameDomains を尊重するホストでは動作する見込み。
 
+## Viz 状態スナップショット(このフォークの追加機能)
+
+埋め込み viz をユーザーが操作すると、iframe 側が**現在のフィルター・パラメーター・選択マーク・
+アクティブシートの要約データ(件数上限つき)**をスナップショットにまとめ、ext-apps の
+`updateModelContext` でウィジェットのモデルコンテキストへ push する。これによりモデルは
+「いま画面に出ている数字」を推測や再クエリなしで答えられる。スナップショットに無いカット・
+別シート・打ち切られた行の先は `query-datasource` で公開データソースを引き直す。
+
+`render-interactive-viz` のツール結果は `content[0]` に従来どおりの生 JSON、`content[1]` に
+この使い分けを説明するガイダンステキストを返す。`content[0]` は iframe が `JSON.parse` するため
+バイト単位で変更してはいけない。
+
+### ウィジェット恒久破損(brick)という失敗モード
+
+**これは運用上もっとも重要な注意点である。** Claude ホストはウィジェットのモデルコンテキストに
+**約 16,000 トークンの上限**を課す。この値は公開仕様ではなく実装依存であり、しかも判定は
+**push 時ではなく表示(display)時**に行われる。
+
+結果として次の順序で不可逆な破損が起きる:
+
+1. 上限超過のペイロードでも push 自体は成功し、ホスト側に**保存される**
+2. 次の表示時に上限判定が走り、ウィジェットが**レンダリングを恒久的に拒否**する
+3. レンダリングされない = iframe が動かない = **保存値を上書きできる唯一の手段が失われる**
+4. そのツールキーは以後永久に死ぬ
+
+**復旧手段はツール名(= ウィジェットキー)のリネームのみ。** リネームが必要な箇所:
+
+- `src/tools/web/renderInteractiveViz/renderInteractiveViz.ts` — `name:` フィールドと
+  `getAppConfig(...)` の引数(`resourceUri` は `ui://<tool-name>/mcp-app.html` として
+  ツール名から生成されるため、ここを直せば追従する)
+- `src/tools/web/toolName.ts` — `webToolNames` 配列(42行目付近)と `webToolGroups` の
+  `mcp-apps` グループ(103行目付近)の両方
+- `src/server/oauth/scopes.ts` — `toolScopeMap` のキー(329行目付近)と、mcp-apps 無効時に
+  `enabledTools.delete('render-interactive-viz')` する箇所(399行目付近)
+
+### 防御 — クライアント側ハードキャップ
+
+上限判定が push 時に行われない以上、**送る前に自分で止めるしかない**。iframe 側は
+`src/web/apps/src/embed/vizState/payload.ts` の `PUSH_BUDGET_BYTES = 30,000` バイトを
+ハードキャップとして持つ。
+
+- 保守的に 2.5 文字/トークンで見積もって約 12k トークン。16k に対して約 25% のマージン
+- 予算を超えるペイロードは**送信しない**。データ行を削って収まる形にしてから push する
+- 16,000 という値が実装依存である以上、キャップは**変更可能な定数**として置いてある
+
+### 想定しているダッシュボード像
+
+本機能がどんなダッシュボードを想定して設計されているか(フィルター/パラメーターでの
+状態表現、公開データソースの参照、計算フィールドの置き場所)と、その根拠となる
+Embedding API / VDS の制約は [AI-DASHBOARD-NOTES.md](AI-DASHBOARD-NOTES.md) に
+制約メモとしてまとめてある。
+
 ## Tableau Server への読み替え
 
 Server では EAS 登録が TSM(サーバー単位)になる、JWKS の公開露出が不要になる、

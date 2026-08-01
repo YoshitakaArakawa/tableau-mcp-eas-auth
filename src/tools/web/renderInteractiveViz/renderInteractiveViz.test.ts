@@ -85,6 +85,38 @@ describe('renderInteractiveVizTool', () => {
     );
   });
 
+  it('should append a viz state guidance text block on success', async () => {
+    mocks.mockGetView.mockResolvedValue(mockView);
+
+    const result = await getToolResult({ luid: mockView.id, objectType: 'view' });
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toHaveLength(2);
+
+    // content[0] must remain the raw JSON payload the app iframe parses.
+    invariant(result.content[0].type === 'text');
+    const payloadText = result.content[0].text;
+    expect(() => JSON.parse(payloadText)).not.toThrow();
+
+    invariant(result.content[1].type === 'text');
+    const guidance = result.content[1].text;
+    expect(guidance).toContain('query-datasource');
+    expect(guidance).toContain('get-view-data');
+    expect(guidance).toContain("widget's model context");
+    expect(guidance).toContain('viz state snapshot');
+  });
+
+  it('should append the same guidance block for a workbook', async () => {
+    mocks.mockGetWorkbook.mockResolvedValue(mockWorkbook);
+
+    const result = await getToolResult({ luid: mockWorkbook.id, objectType: 'workbook' });
+
+    expect(result.isError).toBe(false);
+    expect(result.content).toHaveLength(2);
+    invariant(result.content[1].type === 'text');
+    expect(result.content[1].text).toContain('query-datasource');
+  });
+
   it('should return ViewNotAllowed error when view is not allowed', async () => {
     mocks.mockResourceAccessChecker.isViewAllowed.mockResolvedValue({
       allowed: false,
@@ -94,6 +126,8 @@ describe('renderInteractiveVizTool', () => {
     const result = await getToolResult({ luid: 'test-view-id', objectType: 'view' });
 
     expect(result.isError).toBe(true);
+    // getSuccessResult only affects the success path: errors keep their single-content shape.
+    expect(result.content).toHaveLength(1);
     invariant(result.content[0].type === 'text');
     expect(result.content[0].text).toContain(
       'Querying the view with LUID test-view-id is not allowed',
@@ -127,6 +161,7 @@ describe('renderInteractiveVizTool', () => {
     const result = await getToolResult({ luid: 'test-wb-id', objectType: 'workbook' });
 
     expect(result.isError).toBe(true);
+    expect(result.content).toHaveLength(1);
     invariant(result.content[0].type === 'text');
     expect(result.content[0].text).toContain(
       'Querying the workbook with LUID test-wb-id is not allowed',
