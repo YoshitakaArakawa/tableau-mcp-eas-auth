@@ -14,9 +14,3 @@ PR 単位の作業記録(背景・設計判断・検証)を置くフォルダ。
 - **分担**: 事実の証跡は `verification/`、経緯と判断は `worklog/`。相互リンクで結ぶ
 - **機微情報禁止**: 個人メールアドレス・マシンパス・実サイト名・LUID・トークン・
   個人デプロイの URL は書かない(抽象表現かプレースホルダにする)
-
-## 一覧
-
-- [20260802-repo-conventions.md](20260802-repo-conventions.md) — 本規約(worklog/・verification/)の導入
-- [20260802-viz-state-snapshot.md](20260802-viz-state-snapshot.md) —
-  viz 状態スナップショット機能(F+ 案)の実装・検証・ドキュメント整備
