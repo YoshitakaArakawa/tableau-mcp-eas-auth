@@ -76,7 +76,7 @@ frameDomains を尊重するホストでは動作する見込み。
 
 Server では EAS 登録が TSM(サーバー単位)になる、JWKS の公開露出が不要になる、
 埋め込み認可サーバーモードが TSM 設定でリモートでも成立する、など複数の点が変わる。
-[.work/notes/tableau-server-eas.md](.work/notes/tableau-server-eas.md) に整理してある(未実測)。
+[TABLEAU-SERVER-EAS.md](TABLEAU-SERVER-EAS.md) に整理してある(未実測)。
 
 ## License
 
