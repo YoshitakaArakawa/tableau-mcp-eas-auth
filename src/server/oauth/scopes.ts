@@ -345,6 +345,20 @@ const toolScopeMap: Record<
     mcp: [],
     api: new Set<TableauApiScope>(),
   },
+  // Session site lifecycle: the authorization boundary is the configured allowlist plus the user's
+  // own Tableau access, not an MCP scope. Any authenticated user may move their own session.
+  'switch-site': {
+    mcp: [],
+    api: new Set<TableauApiScope>(),
+  },
+  'get-current-site': {
+    mcp: [],
+    api: new Set<TableauApiScope>(),
+  },
+  'list-sites': {
+    mcp: [],
+    api: new Set<TableauApiScope>(),
+  },
   // MCP-app event telemetry relay: no Tableau REST API calls, no content scope required.
   'record-event': {
     mcp: [],

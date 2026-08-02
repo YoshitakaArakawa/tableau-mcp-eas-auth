@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import * as configModule from '../../config.js';
 import {
   formatSiteScope,
+  getRequiredApiScopesForTool,
+  getRequiredScopesForTool,
   getSupportedApiScopes,
   getSupportedMcpScopes,
   getSupportedScopes,
@@ -341,6 +343,17 @@ describe('scopes', () => {
       } as any);
 
       await expect(isValidScope(formatSiteScope('site-a'))).resolves.toBe(false);
+    });
+
+    it('should require no scopes for the site switching tools', () => {
+      mockGetConfig.mockReturnValue({
+        oauth: { enforceScopes: true },
+      } as any);
+
+      for (const toolName of ['switch-site', 'get-current-site', 'list-sites'] as const) {
+        expect(getRequiredScopesForTool(toolName)).toEqual([]);
+        expect(getRequiredApiScopesForTool(toolName)).toEqual([]);
+      }
     });
   });
 
