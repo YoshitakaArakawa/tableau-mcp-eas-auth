@@ -15,8 +15,10 @@ const paramsSchema = {};
  * Returns an embed token (a Tableau-signed JWT) used to authenticate the embedded
  * Tableau viz in the MCP app UI. Resolves the token from whatever signing material
  * the current server configuration provides:
- *   - a passed-through Tableau Bearer JWT (AUTH=oauth, Tableau authZ server), or
- *   - an embed JWT signed on the server (AUTH=direct-trust or AUTH=uat).
+ *   - an embed JWT signed on the server (AUTH=direct-trust, AUTH=uat or AUTH=eas), or
+ *   - a passed-through Tableau Bearer JWT (AUTH=oauth, Tableau authZ server).
+ * Server signing wins when both are available: a server-signed JWT always carries the
+ * embed scope, while the user's Bearer token may not (client-dependent).
  * When no material is available the tool reports not-available and the app skips
  * embedding. The token value is never exposed to the model.
  */
@@ -48,29 +50,33 @@ This tool resolves the embed token from the current session's signing material â
         callback: async () => {
           const { config, tableauAuthInfo } = extra;
 
-          // 1. Bearer pass-through: if tableauAuthInfo is a Bearer JWT, use it directly.
-          if (tableauAuthInfo?.type === 'Bearer') {
-            return Ok({ token: tableauAuthInfo.raw });
-          }
-
-          // 2. Otherwise: build an AuthConfig and let the resolver sign an embed token.
+          // 1. Server signing first: when the server holds signing material (direct-trust,
+          // uat, eas), sign an embed JWT that is guaranteed to carry tableau:views:embed.
+          // The user's OAuth Bearer token is NOT guaranteed to carry that scope â€” real
+          // clients (e.g. ChatGPT's connector) obtain tokens with MCP scopes only, and
+          // passing such a token to the Embedding API surfaces a sign-in prompt instead
+          // of the viz.
           const authConfig = buildAuthConfig({
             config,
             tableauAuthInfo,
             scopes: new Set([EMBED_SCOPE]),
           });
 
-          if (!authConfig) {
-            // No AuthConfig available (oauth without Bearer, or other unsupported scenario)
-            return new EmbedTokenNotAvailableError().toErr();
+          if (authConfig) {
+            const result = await resolveEmbedToken({ authConfig });
+            if (result.isOk()) {
+              return Ok({ token: result.value.token });
+            }
           }
 
-          const result = await resolveEmbedToken({ authConfig });
-          if (result.isErr()) {
-            return new EmbedTokenNotAvailableError().toErr();
+          // 2. Bearer pass-through: the only option when the server cannot sign
+          // (oauth has no signing material; pat cannot sign embed JWTs).
+          if (tableauAuthInfo?.type === 'Bearer') {
+            return Ok({ token: tableauAuthInfo.raw });
           }
 
-          return Ok({ token: result.value.token });
+          // No embed token available for this configuration.
+          return new EmbedTokenNotAvailableError().toErr();
         },
         constrainSuccessResult: (result) => ({ type: 'success', result }),
       });
