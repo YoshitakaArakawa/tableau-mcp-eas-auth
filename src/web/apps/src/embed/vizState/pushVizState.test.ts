@@ -74,6 +74,7 @@ describe('pushVizState', () => {
     expect(preamble).toContain('what the user currently sees');
     expect(preamble).toContain('query-datasource');
     expect(preamble).toContain('bounded sample');
+    expect(preamble).toContain('cross-check');
     // The leak test rejects any pushed text matching /token/i; the preamble must satisfy it too.
     expect(preamble).not.toMatch(/token/i);
     expect(JSON.parse(json)).toEqual(payload);

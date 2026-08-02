@@ -28,7 +28,9 @@ export const PUSH_PREAMBLE =
   'The `data` rows are a bounded sample, not the full result set. ' +
   'To analyze the full data behind this view, query the datasource named in `datasources` with the query-datasource tool ' +
   '(`datasources[].id` may not be a LUID; resolve the datasource by name via search-content or list-datasources when it does not match), ' +
-  'translating `filters`, `parameters` and `selection` into query filters. JSON follows.';
+  'translating `filters`, `parameters` and `selection` into query filters. ' +
+  'After querying, cross-check the results against the `data` rows (normalize formatting before comparing) and tell the user whether they match what is on screen; ' +
+  'a mismatch usually means sheet-level calculations the datasource does not have, a wrong datasource, or an untranslated filter. JSON follows.';
 
 const PREAMBLE_BYTES = utf8ByteLength(`${PUSH_PREAMBLE}\n`);
 
