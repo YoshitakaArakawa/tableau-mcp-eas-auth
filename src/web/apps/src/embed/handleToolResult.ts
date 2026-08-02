@@ -3,7 +3,9 @@ import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
 import { extractToolErrorMessage } from '../../../../utils/extractToolErrorMessage.js';
+import { recordEvent } from '../shared/recordEventClient.js';
 import { showError } from '../shared/showError.js';
+import { TABLEAU_VIZ_CONTAINER_ID } from '../shared/vizContainer.js';
 import { embedTableauViz } from './embedTableauViz.js';
 import { callGetEmbedTokenTool } from './getEmbedTokenToolClient.js';
 import { loadTableauEmbeddingApi } from './loadTableauEmbeddingApi.js';
@@ -87,13 +89,18 @@ export function toVizIdentity(data: NonNullable<RenderPayload['data']>): VizIden
  * Whether a delivery carries no usable payload (empty `content`, no `structuredContent`).
  * Empty `content` is protocol-legal (MCP defaults it to `[]`), so this is not a parse failure —
  * just nothing to render. Content that is present but unparseable is NOT empty and still surfaces
- * PARSE_ERROR downstream.
+ * PARSE_ERROR downstream (unless a viz is already mounted — see `handleToolResult`).
  */
 function isEmptyDelivery(result: CallToolResult): boolean {
   const hasContent = Array.isArray(result.content) && result.content.length > 0;
   const hasStructuredContent =
     result.structuredContent != null && Object.keys(result.structuredContent).length > 0;
   return !hasContent && !hasStructuredContent;
+}
+
+/** Whether the container currently holds a mounted viz (as opposed to nothing or the error UI). */
+function isVizMounted(): boolean {
+  return document.getElementById(TABLEAU_VIZ_CONTAINER_ID)?.querySelector('tableau-viz') != null;
 }
 
 /**
@@ -114,11 +121,20 @@ export async function handleToolResult(app: App, result: CallToolResult): Promis
     return;
   }
 
-  // Parse failure
+  // Parse failure. Observed on a real device: the host can re-deliver tool results that are not
+  // render payloads at all (e.g. a get-view-data CSV fetched during an analysis turn) to the
+  // already-mounted widget. Once a viz is on screen, an unparseable delivery must never replace
+  // it with the error UI — log and record it, keep the viz. PARSE_ERROR only surfaces while
+  // nothing is rendered yet.
   let payload: RenderPayload;
   try {
     payload = extractRenderPayloadFromResult(result);
   } catch (e) {
+    if (isVizMounted()) {
+      console.warn('[mcp-app] ignored an unparseable re-delivery; keeping the mounted viz', e);
+      recordEvent(app, 'PARSE_ERROR_IGNORED', e);
+      return;
+    }
     showError('PARSE_ERROR', e, app);
     return;
   }

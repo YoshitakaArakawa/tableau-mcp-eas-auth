@@ -404,6 +404,80 @@ describe('handleToolResult', () => {
     expect(container?.querySelector('.mcp-app-error')).toBeNull();
   });
 
+  it('shows PARSE_ERROR when the first delivery is unparseable and nothing is rendered yet', async () => {
+    const unparseableResult: CallToolResult = {
+      content: [{ type: 'text', text: 'col1,col2\n1,2' }],
+    };
+
+    await handleToolResult(mockApp, unparseableResult);
+    await new Promise((r) => setTimeout(r, 0));
+
+    const container = document.getElementById('tableauVizContainer');
+
+    // Nothing was mounted before this delivery, so the parse failure surfaces as the error UI.
+    expect(container?.querySelector('tableau-viz')).toBeNull();
+    const errorElement = container?.querySelector('.mcp-app-error');
+    expect(errorElement).toBeTruthy();
+    expect(errorElement?.querySelector('.mcp-app-error-message')?.textContent).toBe(
+      'The response was not in the expected format.',
+    );
+    expect(vi.mocked(recordEvent)).toHaveBeenCalledWith(mockApp, 'PARSE_ERROR', expect.anything());
+  });
+
+  it('keeps the mounted viz when an unparseable re-delivery arrives after a render', async () => {
+    // Observed on a real device: the host can re-deliver non-render tool results (e.g. a
+    // get-view-data CSV fetched during an analysis turn) to the already-mounted widget.
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    // First delivery: happy path renders a viz.
+    const validResult: CallToolResult = {
+      content: [
+        {
+          type: 'text',
+          text: JSON.stringify({
+            url: 'https://prod-uswest-c.online.tableau.com/site/mysite/views/workbook/view',
+          }),
+        },
+      ],
+    };
+
+    vi.mocked(callGetEmbedTokenTool).mockResolvedValue('test-token-123');
+    vi.mocked(embedTableauViz).mockImplementation(() => {
+      const container = document.getElementById('tableauVizContainer');
+      const viz = document.createElement('tableau-viz');
+      container?.replaceChildren(viz);
+      return viz;
+    });
+    vi.mocked(setupOpenInTableauLink).mockImplementation(() => {});
+
+    await handleToolResult(mockApp, validResult);
+    await new Promise((r) => setTimeout(r, 0));
+
+    const container = document.getElementById('tableauVizContainer');
+    expect(container?.querySelector('tableau-viz')).toBeTruthy();
+
+    // Second delivery: unparseable content. Must be ignored — the viz stays, no error UI,
+    // no re-embed; only a log line and a telemetry event.
+    await handleToolResult(mockApp, {
+      content: [{ type: 'text', text: 'col1,col2\n1,2' }],
+    });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(container?.querySelector('tableau-viz')).toBeTruthy();
+    expect(container?.querySelector('.mcp-app-error')).toBeNull();
+    expect(vi.mocked(embedTableauViz)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(recordEvent)).toHaveBeenCalledWith(
+      mockApp,
+      'PARSE_ERROR_IGNORED',
+      expect.anything(),
+    );
+    expect(vi.mocked(recordEvent)).not.toHaveBeenCalledWith(
+      mockApp,
+      'PARSE_ERROR',
+      expect.anything(),
+    );
+  });
+
   it('reports telemetry with the tool error message when a tool error occurs', async () => {
     const errorResult: CallToolResult = {
       isError: true,
