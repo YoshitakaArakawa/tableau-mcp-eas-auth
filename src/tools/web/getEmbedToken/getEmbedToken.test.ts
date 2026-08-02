@@ -135,6 +135,42 @@ describe('getEmbedTokenTool', () => {
     expect(payload.iss).toBe('test-issuer');
   });
 
+  it('signs an eas embed JWT instead of passing through the Bearer token (AUTH=eas, Tableau-authz mode)', async () => {
+    const { privateKey } = await generateKeyPair('RS256', { extractable: true });
+    const privateKeyPem = await exportPKCS8(privateKey);
+
+    const extra = getMockRequestHandlerExtra();
+    extra.config.auth = 'eas';
+    extra.config.jwtUsername = '{OAUTH_USERNAME}';
+    extra.config.easIssuer = 'https://eas.example.com';
+    extra.config.easAudience = 'tableau:test-site-luid';
+    extra.config.easPrivateKey = privateKeyPem;
+    extra.config.easKeyId = 'test-key-id';
+    // The Bearer token from the OAuth session may lack tableau:views:embed
+    // (e.g. ChatGPT's connector) — the server-signed EAS JWT must win.
+    extra.tableauAuthInfo = {
+      type: 'Bearer',
+      raw: MOCK_TOKEN,
+      username: 'oauth-user@example.com',
+      server: 'https://example.com',
+      siteId: 'test-site-id',
+      siteName: 'test-site',
+      clientId: 'test-client-id',
+    };
+
+    const result = await getToolResult(extra);
+
+    expect(result.isError).toBe(false);
+    invariant(result.content[0].type === 'text');
+    const response = JSON.parse(result.content[0].text);
+    expect(response.token).not.toBe(MOCK_TOKEN);
+    const payload = decodeJwt(response.token);
+    expect(payload.scp).toEqual([EMBED_SCOPE]);
+    expect(payload.sub).toBe('oauth-user@example.com');
+    expect(payload.iss).toBe('https://eas.example.com');
+    expect(payload.aud).toBe('tableau:test-site-luid');
+  });
+
   it('passes through Bearer token even when X-Tableau-Auth is present (Tableau-authz mode)', async () => {
     const extra = getMockRequestHandlerExtra();
     extra.config.auth = 'oauth';
