@@ -1,7 +1,13 @@
+import { generateKeyPairSync } from 'crypto';
+import { CompactEncrypt } from 'jose';
 import { Err, Ok } from 'ts-results-es';
 
 import { RestApi } from '../../sdks/tableau/restApi.js';
-import { TableauAccessTokenValidator } from './accessTokenValidator.js';
+import {
+  EmbeddedAccessTokenValidator,
+  TableauAccessTokenValidator,
+} from './accessTokenValidator.js';
+import { AUDIENCE } from './token.js';
 
 const MOCK_ISSUER = 'https://sso.online.tableau.com';
 const MOCK_CLIENT_ID = 'https://cimd.example.com/oauth/metadata.json';
@@ -30,6 +36,97 @@ function basePayload(overrides: Record<string, unknown> = {}): Record<string, un
     ...overrides,
   };
 }
+
+const { privateKey: jwePrivateKey, publicKey: jwePublicKey } = generateKeyPairSync('rsa', {
+  modulusLength: 2048,
+});
+const jwePrivateKeyPem = jwePrivateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+
+function embeddedPayload(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    iss: MOCK_ISSUER,
+    aud: AUDIENCE,
+    exp: FUTURE_EXP,
+    sub: 'user@example.com',
+    clientId: MOCK_CLIENT_ID,
+    tableauServer: 'https://my-tableau.example.com',
+    scope: 'tableau:mcp:content:read',
+    jti: 'jti-1',
+    tableauAccessToken: 'wg|session|site-luid-1',
+    tableauRefreshToken: 'tableau-refresh-token',
+    tableauExpiresAt: FUTURE_EXP,
+    tableauUserId: 'uid-1',
+    ...overrides,
+  };
+}
+
+async function makeJwe(payload: Record<string, unknown>): Promise<string> {
+  return await new CompactEncrypt(new TextEncoder().encode(JSON.stringify(payload)))
+    .setProtectedHeader({ alg: 'RSA-OAEP-256', enc: 'A256GCM' })
+    .encrypt(jwePublicKey);
+}
+
+describe('EmbeddedAccessTokenValidator', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubEnv('AUTH', 'oauth');
+    vi.stubEnv('OAUTH_ISSUER', MOCK_ISSUER);
+    vi.stubEnv('OAUTH_JWE_PRIVATE_KEY', jwePrivateKeyPem);
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('rejects a token whose jti has been revoked', async () => {
+    const validator = new EmbeddedAccessTokenValidator(
+      jwePrivateKey,
+      new Map<string, true>([['jti-1', true]]),
+    );
+
+    const result = await validator.validate(await makeJwe(embeddedPayload()));
+
+    expect(result.isErr()).toBe(true);
+    if (!result.isErr()) return;
+    expect(result.error).toBe('Invalid or expired access token');
+  });
+
+  it('rejects a revoked token before calling the Tableau REST API', async () => {
+    const validator = new EmbeddedAccessTokenValidator(
+      jwePrivateKey,
+      new Map<string, true>([['jti-1', true]]),
+    );
+
+    const result = await validator.validate(await makeJwe(embeddedPayload()));
+
+    expect(result.isErr()).toBe(true);
+    expect(RestApi).not.toHaveBeenCalled();
+  });
+
+  it('accepts a token whose jti is not revoked', async () => {
+    const validator = new EmbeddedAccessTokenValidator(
+      jwePrivateKey,
+      new Map<string, true>([['some-other-jti', true]]),
+    );
+
+    const result = await validator.validate(await makeJwe(embeddedPayload()));
+
+    expect(result.isOk()).toBe(true);
+    expect(RestApi).toHaveBeenCalledOnce();
+  });
+
+  it('accepts a legacy token issued without a jti', async () => {
+    const { jti: _jti, ...withoutJti } = embeddedPayload();
+    const validator = new EmbeddedAccessTokenValidator(
+      jwePrivateKey,
+      new Map<string, true>([['jti-1', true]]),
+    );
+
+    const result = await validator.validate(await makeJwe(withoutJti));
+
+    expect(result.isOk()).toBe(true);
+  });
+});
 
 describe('TableauAccessTokenValidator', () => {
   let validator: TableauAccessTokenValidator;

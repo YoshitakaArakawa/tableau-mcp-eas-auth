@@ -4,6 +4,7 @@ import { readFileSync } from 'fs';
 
 import { getConfig } from '../../config.js';
 import { log } from '../../logging/logger.js';
+import { ExpiringMap } from '../../utils/expiringMap.js';
 import { oauthAuthorizationServer } from './.well-known/oauth-authorization-server.js';
 import { oauthProtectedResource } from './.well-known/oauth-protected-resource.js';
 import {
@@ -20,6 +21,10 @@ import { token } from './token.js';
 import { AuthorizationCode, PendingAuthorization, RefreshTokenData } from './types.js';
 
 export const TABLEAU_CLOUD_SERVER_URL = 'https://online.tableau.com';
+
+// setTimeout tops out at 2^31-1 ms while OAUTH_ACCESS_TOKEN_TIMEOUT_MS accepts up to 30 days, so
+// the revocation TTL is clamped into the range ExpiringMap accepts.
+const MAX_REVOCATION_TTL_MS = 2 ** 31 - 1;
 
 /**
  * Abstract OAuth provider
@@ -54,6 +59,16 @@ export class EmbeddedOAuthProvider extends OAuthProvider {
   // Secondary index for O(1) revocation: Tableau access token -> MCP refresh token ID.
   // Expiry-timeout entries may become stale but are harmless and self-clean on next revoke.
   private readonly refreshTokenIndex = new Map<string, string>();
+  // Access tokens revoked individually by jti, as opposed to /oauth2/revoke which drops the whole
+  // grant. Entries expire with the access token lifetime, so a revoked jti is never held past the
+  // point where the token would have expired anyway. Process-local, like the maps above.
+  private readonly revokedJtis = new ExpiringMap<string, true>({
+    defaultExpirationTimeMs: Math.min(
+      Math.max(this.config.oauth.accessTokenTimeoutMs, 1),
+      MAX_REVOCATION_TTL_MS,
+    ),
+    maxSize: 10_000,
+  });
 
   private readonly privateKey: KeyObject;
   private readonly publicKey: KeyObject;
@@ -66,7 +81,7 @@ export class EmbeddedOAuthProvider extends OAuthProvider {
   }
 
   get accessTokenValidator(): AccessTokenValidator {
-    return new EmbeddedAccessTokenValidator(this.privateKey);
+    return new EmbeddedAccessTokenValidator(this.privateKey, this.revokedJtis);
   }
 
   setupRoutes(app: express.Application): void {

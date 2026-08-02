@@ -36,11 +36,13 @@ export abstract class AccessTokenValidator {
 
 export class EmbeddedAccessTokenValidator extends AccessTokenValidator {
   private readonly privateKey: KeyObject;
+  private readonly revokedJtis: ReadonlyMap<string, true>;
 
-  constructor(privateKey: KeyObject) {
+  constructor(privateKey: KeyObject, revokedJtis: ReadonlyMap<string, true>) {
     super();
 
     this.privateKey = privateKey;
+    this.revokedJtis = revokedJtis;
   }
 
   async validate(token: string): Promise<AccessTokenValidatorResult> {
@@ -53,7 +55,7 @@ export class EmbeddedAccessTokenValidator extends AccessTokenValidator {
         return Err(`Invalid access token: ${fromError(mcpAccessToken.error).toString()}`);
       }
 
-      const { iss, aud, exp, clientId } = mcpAccessToken.data;
+      const { iss, aud, exp, jti, clientId } = mcpAccessToken.data;
       if (
         iss !== this.config.oauth.issuer ||
         aud !== AUDIENCE ||
@@ -61,6 +63,12 @@ export class EmbeddedAccessTokenValidator extends AccessTokenValidator {
       ) {
         // https://github.com/modelcontextprotocol/inspector/issues/608
         // MCP Inspector Not Using Refresh Token for Token Validation
+        return new Err('Invalid or expired access token');
+      }
+
+      // Individually revoked tokens are rejected before any Tableau REST call so a revoked token
+      // costs a single Map lookup. Tokens issued without a jti predate the claim and pass through.
+      if (jti && this.revokedJtis.has(jti)) {
         return new Err('Invalid or expired access token');
       }
 

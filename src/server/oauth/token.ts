@@ -1,4 +1,4 @@
-import { KeyObject, randomBytes, timingSafeEqual } from 'crypto';
+import { KeyObject, randomBytes, randomUUID, timingSafeEqual } from 'crypto';
 import express from 'express';
 import { CompactEncrypt } from 'jose';
 import { Err, Ok, Result } from 'ts-results-es';
@@ -305,6 +305,7 @@ async function createAccessToken(tokenData: UserAndTokens, publicKey: KeyObject)
     sub: tokenData.user.name,
     clientId: tokenData.clientId,
     tableauServer: tokenData.server,
+    jti: randomUUID(),
     iat: Math.floor(Date.now() / 1000),
     exp: Math.floor((Date.now() + config.oauth.accessTokenTimeoutMs) / 1000),
     aud: AUDIENCE,
@@ -338,6 +339,7 @@ async function createClientCredentialsAccessToken(
     sub: clientCredentials.clientId,
     clientId: clientCredentials.clientId,
     tableauServer: clientCredentials.server,
+    jti: randomUUID(),
     iat: Math.floor(Date.now() / 1000),
     exp: Math.floor((Date.now() + config.oauth.accessTokenTimeoutMs) / 1000),
     aud: AUDIENCE,

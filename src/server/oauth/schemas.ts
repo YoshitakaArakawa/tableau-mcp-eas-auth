@@ -93,6 +93,9 @@ export const mcpAccessTokenUserOnlySchema = z.object({
   sub: requiredString('sub'),
   clientId: requiredString('clientId'),
   tableauServer: requiredString('tableauServer'),
+  // Per-token identifier used for individual revocation. Optional so tokens issued before this
+  // claim existed keep validating instead of invalidating every live session on deploy.
+  jti: z.string().optional(),
   // Optional because there may not be a user associated with the access token, e.g. for client credentials grant type
   tableauUserId: z.string().optional(),
   tableauSiteId: z.string().optional(),
