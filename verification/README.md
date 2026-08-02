@@ -13,3 +13,5 @@
   (aud 形式・well-known 二重参照・loopback 制約・CIMD 等、ドキュメントに無い事実)
 - [viz-state/](viz-state/ACCEPTANCE.md) — viz 状態スナップショット機能の手動受け入れ
   (実 viz に対する capture→push 経路の実機検証)
+- [chatgpt-connector/](chatgpt-connector/FINDINGS.md) — ChatGPT カスタムコネクタからの接続
+  (取得トークンに API スコープが載らず `initialize` が 403 になる件と、その解消条件)
