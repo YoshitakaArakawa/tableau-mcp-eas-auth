@@ -75,6 +75,43 @@ MCP スコープの検査は維持されるため、ツール単位の権限分�
 現れる。既存のアクセストークンをそのまま使える(トークン側は元々 MCP スコープを
 満たしており、変わったのはサーバー側の要求スコープだけ)。
 
+### 5. Bearer パススルーの embed トークンではサインイン画面になる。サーバー署名で解消
+
+`ADVERTISE_API_SCOPES=false` で接続した後、viz 埋め込み(get-view)を実行すると、
+App の iframe に Tableau のサインイン画面が表示された。原因は `get-embed-token` が
+ユーザーの OAuth アクセストークン(Bearer)を無条件でパススルーしていたこと。
+項2のとおり ChatGPT のトークンには `tableau:views:embed` が載らないため、
+Embedding API が認証不成立としてサインイン画面へフォールバックする。
+
+`get-embed-token` をサーバー署名優先(`AUTH=eas` では EAS 秘密鍵で
+`tableau:views:embed` を載せた embed JWT を署名)に変更した結果、同じ操作で
+viz が直接描画されることを実測確認した(サインイン画面なし・操作可能な状態で表示)。
+
+### 6. App iframe の sandbox に allow-popups がない。サインインボタンは silent fail する
+
+ChatGPT の App iframe を実測した属性:
+
+```
+src:     https://asdk_app_<app-id>.web-sandbox.oaiusercontent.com/...
+sandbox: allow-scripts allow-same-origin allow-forms
+allow:   local-network-access *; microphone *; midi *
+```
+
+`allow-popups` / `allow-top-navigation` が無いため、Embedding API のサインイン
+ボタン(ポップアップでログイン画面を開く)はクリックしても何も起きない。
+つまり ChatGPT 内では「ユーザーにサインインさせて埋め込む」経路は成立せず、
+埋め込みトークンをサーバー側で完結させる(項5)ことが必須になる。
+
+### 7. アクセストークン失効後、ChatGPT は自動リフレッシュせずツール呼び出しが 401 になる
+
+コネクタ登録から約40分後、ツール呼び出しがミドルウェアのトークン検証
+(`getCurrentServerSession`)で Tableau の 401002 により拒否された。ChatGPT は
+この 401 を受けてもトークンリフレッシュを試みず、会話上にエラーを表示した。
+
+設定 → プラグイン → 対象コネクタ → 管理 → 「更新する」でアクション再読み込みを
+行った後、新規チャットからの呼び出しは成功した(再サインインは要求されなかった)。
+リフレッシュがどの時点で走ったか(再読み込み時か次回呼び出し時か)は**未確認**。
+
 ## 再現手順の要点
 
 1. `TRANSPORT=http` / `AUTH=eas` / `OAUTH_EMBEDDED_AUTHZ_SERVER=false` /
