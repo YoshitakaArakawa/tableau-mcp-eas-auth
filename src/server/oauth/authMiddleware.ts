@@ -16,6 +16,10 @@ import { AuthenticatedRequest } from './types.js';
 
 const protectedResourceMetadataPath = '/.well-known/oauth-protected-resource';
 
+// RFC 6750 §3: a 401 must carry a WWW-Authenticate challenge. The description is a fixed, safe
+// string so internal validation errors are never echoed back to the client.
+const invalidTokenDescription = 'The access token is invalid or expired';
+
 /**
  * Express middleware for OAuth authentication
  *
@@ -77,12 +81,18 @@ export function authMiddleware(accessTokenValidator: AccessTokenValidator): Requ
     const result = await accessTokenValidator.validate(token);
 
     if (result.isErr()) {
+      const { resourceUri } = getConfig().oauth;
+      const baseUrl = new URL(resourceUri).origin;
+      const resourceMetadataUrl = `${baseUrl}${protectedResourceMetadataPath}`;
+      const wwwAuthenticate = `Bearer realm="MCP", error="invalid_token", error_description="${invalidTokenDescription}", resource_metadata="${resourceMetadataUrl}"`;
+
       // For SSE requests (GET), provide proper SSE error response
       if (req.method === 'GET' && req.headers.accept?.includes('text/event-stream')) {
         res.writeHead(401, {
           'Content-Type': 'text/event-stream',
           'Cache-Control': 'no-cache',
           Connection: 'keep-alive',
+          'WWW-Authenticate': wwwAuthenticate,
         });
         res.write('event: error\n');
         res.write(`data: {"error": "invalid_token", "error_description": "${result.error}"}\n\n`);
@@ -96,7 +106,7 @@ export function authMiddleware(accessTokenValidator: AccessTokenValidator): Requ
         logger: 'oauth',
         data: result.error,
       });
-      res.status(401).json({
+      res.status(401).header('WWW-Authenticate', wwwAuthenticate).json({
         error: 'invalid_token',
         error_description: result.error,
       });
