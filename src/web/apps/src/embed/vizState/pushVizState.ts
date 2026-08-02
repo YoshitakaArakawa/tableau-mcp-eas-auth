@@ -27,7 +27,7 @@ export const PUSH_PREAMBLE =
   'Tableau viz state snapshot — what the user currently sees in the embedded viz. ' +
   'The `data` rows are a bounded sample, not the full result set. ' +
   'To analyze the full data behind this view, query the datasource named in `datasources` with the query-datasource tool ' +
-  '(`datasources[].id` may not be a LUID; resolve the datasource by name via list-datasources when it does not match), ' +
+  '(`datasources[].id` may not be a LUID; resolve the datasource by name via search-content or list-datasources when it does not match), ' +
   'translating `filters`, `parameters` and `selection` into query filters. JSON follows.';
 
 const PREAMBLE_BYTES = utf8ByteLength(`${PUSH_PREAMBLE}\n`);

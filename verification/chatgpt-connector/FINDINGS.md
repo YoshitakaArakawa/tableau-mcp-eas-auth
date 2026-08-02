@@ -112,6 +112,36 @@ allow:   local-network-access *; microphone *; midi *
 行った後、新規チャットからの呼び出しは成功した(再サインインは要求されなかった)。
 リフレッシュがどの時点で走ったか(再読み込み時か次回呼び出し時か)は**未確認**。
 
+### 8. ChatGPT ホストで updateModelContext の full E2E が機能する
+
+viz 状態スナップショット(App iframe から `app.updateModelContext` で push)は ChatGPT の
+モデルに実際に届く。実測では、埋め込んだ Superstore ダッシュボードで州を選択した後の
+質問に対し、ChatGPT が選択州・期間フィルター・Region 状態を正確に列挙した。操作後の
+更新 push も届く(初回だけでなく、選択変更が次のターンの回答に反映された)。
+
+注意: 操作直後の質問では一つ前の状態を報告する場面も観測された。debounce 2 秒 +
+キャプチャ最大 15 秒のラグに加え、push が次ターンからしか見えない可能性がある(**未確認**)。
+
+### 9. スナップショットの誘導で「見えているデータ」の再クエリが成立する
+
+push preamble の誘導(データはサンプル、フルデータは datasources を query-datasource で、
+状態をフィルターに翻訳して引く)に対する ChatGPT の実挙動:
+
+1. スナップショットから状態を読み取り(期間 2017-01-03〜2020-12-30、州選択 Texas、
+   Region 全件)、クエリ条件へ翻訳した。マーク選択→カテゴリカルフィルターの翻訳を含む
+2. データソース解決は name 経由だった。`list-datasources` は「見つからない/権限なし」を
+   返し、`search-content` で名前検索して published datasource の LUID を解決した
+3. 再クエリした全体集計(売上 $170,188.05 / 利益 -$25,729.36 / 利益率 -15.12%)が、
+   画面のダッシュボード KPI 表示と完全一致した。年別・カテゴリ別・サブカテゴリ別の
+   掘り下げまでフルデータで実行された
+4. ChatGPT は自発的に「アクションフィルターを分析全体に適用した」という解釈の注記と、
+   「検索で解決したデータソースが viz の参照先と同一である厳密な確認はできていない」
+   という限界の申告を行った(caveat の意図どおりの挙動)
+
+`DataSource.id`(Embedding API)が published datasource LUID と一致するかは**未確認**のまま
+(ChatGPT はツール履歴から id 値を再掲できず、id を直接 datasourceLuid には使わなかった)。
+誘導文の name フォールバックが実際の成立経路である。
+
 ## 再現手順の要点
 
 1. `TRANSPORT=http` / `AUTH=eas` / `OAUTH_EMBEDDED_AUTHZ_SERVER=false` /

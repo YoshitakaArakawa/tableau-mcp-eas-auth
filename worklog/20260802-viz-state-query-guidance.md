@@ -55,7 +55,12 @@
 - 単体テスト: vizState 8ファイル 109/109 通過。datasource 捕捉・キャッシュ・
   失敗時リトライ・上限・ラダー保持・preamble 文言の各テストを追加。
   全体スイートの失敗1件(FeatureGate のパス解決)は main でも失敗する既存問題
-- 実機検証: (デプロイ後に追記)
+- 実機検証: ChatGPT カスタムコネクタで Superstore ダッシュボードを埋め込み、
+  Texas を選択 → 「見えている状態のデータを取り直して分析」と依頼。ChatGPT は
+  スナップショットの状態(期間・選択州・Region)をクエリ条件へ翻訳し、published
+  datasource を name 検索で解決してフルデータを再クエリした。全体集計が画面 KPI と
+  完全一致(売上 $170,188.05 / 利益 -$25,729.36)。詳細は
+  verification/chatgpt-connector/FINDINGS.md 項8〜9
 
 ## フォローアップ
 
