@@ -142,6 +142,18 @@ push preamble の誘導(データはサンプル、フルデータは datasource
 (ChatGPT はツール履歴から id 値を再掲できず、id を直接 datasourceLuid には使わなかった)。
 誘導文の name フォールバックが実際の成立経路である。
 
+実際のツール呼び出し列(ChatGPT の自己申告。引数は会話上で確認できた範囲のみ):
+
+1. `list-datasources` `{}` → 「見つからない/権限なし」
+2. `search-content` `{"terms": "Superstore"}` → published datasource を解決
+3. `get-datasource-metadata` `{"datasourceLuid": "<解決した LUID>"}` → フィールド一覧
+4. `query-datasource` ×4(全体集計・年別・カテゴリ別・サブカテゴリ別。引数 JSON は
+   ChatGPT が後から再掲できず**未確認**。Texas と期間のフィルターが入っていたことは
+   集計結果が画面 KPI・注文数 487 件と一致したことからの推定)
+
+「フルデータの再クエリ」の実体は、VDS(query-datasource)がフィルター適用後の全行を
+サーバー側で集計した結果であり、行データのダウンロードではない。
+
 ## 再現手順の要点
 
 1. `TRANSPORT=http` / `AUTH=eas` / `OAUTH_EMBEDDED_AUTHZ_SERVER=false` /
