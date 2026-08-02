@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 
 import * as configModule from '../../config.js';
 import {
+  formatSiteScope,
   getSupportedApiScopes,
   getSupportedMcpScopes,
   getSupportedScopes,
   isValidScope,
+  parseSiteScope,
 } from './scopes.js';
 
 vi.mock('../../config.js', () => ({
@@ -296,6 +298,49 @@ describe('scopes', () => {
       expect(scopes).not.toContain('tableau:users:read');
       expect(scopes).not.toContain('tableau:mcp:users:write');
       expect(scopes).not.toContain('tableau:users:update');
+    });
+  });
+
+  describe('site scopes', () => {
+    it('should format a site content URL as a site scope', () => {
+      expect(formatSiteScope('site-a')).toBe('tableau:site:site-a');
+    });
+
+    it('should round-trip a site content URL', () => {
+      for (const contentUrl of ['site-a', 'Site_B-1', '']) {
+        expect(parseSiteScope(formatSiteScope(contentUrl))).toBe(contentUrl);
+      }
+    });
+
+    it('should return undefined for scopes that are not site scopes', () => {
+      expect(parseSiteScope('tableau:mcp:content:read')).toBeUndefined();
+      expect(parseSiteScope('tableau:content:read')).toBeUndefined();
+      expect(parseSiteScope('')).toBeUndefined();
+      expect(parseSiteScope('site-a')).toBeUndefined();
+      expect(parseSiteScope('x tableau:site:site-a')).toBeUndefined();
+    });
+
+    it('should not advertise site scopes as supported', async () => {
+      mockGetConfig.mockReturnValue({
+        adminToolsEnabled: true,
+        flowToolsEnabled: true,
+      } as any);
+
+      const mcpScopes = await getSupportedMcpScopes();
+      const apiScopes = await getSupportedApiScopes();
+      const allScopes = await getSupportedScopes({ includeApiScopes: true });
+
+      for (const scopes of [mcpScopes, apiScopes, allScopes]) {
+        expect(scopes.filter((scope) => parseSiteScope(scope) !== undefined)).toEqual([]);
+      }
+    });
+
+    it('should not treat a site scope as a valid MCP scope', async () => {
+      mockGetConfig.mockReturnValue({
+        adminToolsEnabled: true,
+      } as any);
+
+      await expect(isValidScope(formatSiteScope('site-a'))).resolves.toBe(false);
     });
   });
 

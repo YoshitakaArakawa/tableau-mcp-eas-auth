@@ -14,7 +14,7 @@ const CODE_VERIFIER = 'test-code-verifier';
 const REDIRECT_URI = 'https://client.example.com/callback';
 const CLIENT_ID = 'test-client-id';
 
-function makeAuthorizationCode(): AuthorizationCode {
+function makeAuthorizationCode(siteContentUrl = 'site-a'): AuthorizationCode {
   return {
     user: { id: 'user-luid', name: 'user@example.com' },
     clientId: CLIENT_ID,
@@ -25,7 +25,7 @@ function makeAuthorizationCode(): AuthorizationCode {
       expiresInSeconds: 3600,
     },
     scopes: ['tableau:mcp:content:read'],
-    siteContentUrl: 'site-a',
+    siteContentUrl,
     redirectUri: REDIRECT_URI,
     codeChallenge: generateCodeChallenge(CODE_VERIFIER),
     expiresAt: Math.floor(Date.now() / 1000) + 600,
@@ -85,6 +85,68 @@ describe('token endpoint', () => {
 
     expect(payload.jti).toEqual(expect.any(String));
     expect(payload.jti).not.toBe('');
+  });
+
+  it('appends the site scope to the access token scope claim', async () => {
+    const authorizationCodes = new Map<string, AuthorizationCode>([
+      ['code-1', makeAuthorizationCode('site-a')],
+    ]);
+    const app = startApp(authorizationCodes);
+
+    const payload = await decryptAccessToken(await exchangeCode(app, 'code-1'));
+
+    expect(payload.scope).toBe('tableau:mcp:content:read tableau:site:site-a');
+  });
+
+  it('omits the site scope when the site content URL is empty', async () => {
+    const authorizationCodes = new Map<string, AuthorizationCode>([
+      ['code-1', makeAuthorizationCode('')],
+    ]);
+    const app = startApp(authorizationCodes);
+
+    const payload = await decryptAccessToken(await exchangeCode(app, 'code-1'));
+
+    expect(payload.scope).toBe('tableau:mcp:content:read');
+  });
+
+  it('does not advertise the site scope in the token response', async () => {
+    const authorizationCodes = new Map<string, AuthorizationCode>([
+      ['code-1', makeAuthorizationCode('site-a')],
+    ]);
+    const app = startApp(authorizationCodes);
+
+    const response = await request(app).post('/oauth2/token').send({
+      grant_type: 'authorization_code',
+      code: 'code-1',
+      redirect_uri: REDIRECT_URI,
+      code_verifier: CODE_VERIFIER,
+      client_id: CLIENT_ID,
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.body.scope).toBe('tableau:mcp:content:read');
+  });
+
+  it('records the site scope on the issued grant', async () => {
+    const authorizationCodes = new Map<string, AuthorizationCode>([
+      ['code-1', makeAuthorizationCode('site-a')],
+    ]);
+    const refreshTokens = new Map<string, RefreshTokenData>();
+    const app = express();
+    app.use(express.json());
+    token(app, authorizationCodes, refreshTokens, publicKey, new Map<string, string>());
+
+    const response = await request(app).post('/oauth2/token').send({
+      grant_type: 'authorization_code',
+      code: 'code-1',
+      redirect_uri: REDIRECT_URI,
+      code_verifier: CODE_VERIFIER,
+      client_id: CLIENT_ID,
+    });
+
+    expect(response.status).toBe(200);
+    const grant = refreshTokens.get(response.body.refresh_token);
+    expect(grant?.siteScope).toBe('tableau:site:site-a');
   });
 
   it('issues a distinct jti per access token', async () => {
