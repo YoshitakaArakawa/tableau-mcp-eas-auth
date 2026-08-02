@@ -30,7 +30,8 @@ export const PUSH_PREAMBLE =
   '(`datasources[].id` may not be a LUID; resolve the datasource by name via search-content or list-datasources when it does not match), ' +
   'translating `filters`, `parameters` and `selection` into query filters. ' +
   'After querying, cross-check the results against the `data` rows (normalize formatting before comparing) and tell the user whether they match what is on screen; ' +
-  'a mismatch usually means sheet-level calculations the datasource does not have, a wrong datasource, or an untranslated filter. JSON follows.';
+  'a mismatch usually means sheet-level calculations the datasource does not have, a wrong datasource, or an untranslated filter. ' +
+  'If you use a view-data tool instead, it returns the view in its DEFAULT state — pass the snapshot `filters` as viewFilters, or the numbers will not reflect what the user sees. JSON follows.';
 
 const PREAMBLE_BYTES = utf8ByteLength(`${PUSH_PREAMBLE}\n`);
 
