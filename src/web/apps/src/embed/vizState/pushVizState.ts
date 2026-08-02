@@ -14,9 +14,21 @@ import { recordEvent } from '../../shared/recordEventClient.js';
 import { fitPayloadToBudget, PUSH_BUDGET_BYTES, type VizStatePayload } from './payload.js';
 import { utf8ByteLength } from './sanitize.js';
 
-/** Tells the model what the JSON is and, importantly, that it describes the CURRENT view. */
-const PUSH_PREAMBLE =
-  'Tableau viz state snapshot — what the user currently sees in the embedded viz. JSON follows.';
+/**
+ * Tells the model what the JSON is and, importantly, that it describes the CURRENT view — and how
+ * to get the full data behind it. The snapshot's `data` block is a bounded sample, so questions
+ * about "the data I'm looking at" are answered by querying the datasource with the snapshot's
+ * filter/selection state, not by trusting the sample to be complete.
+ *
+ * Wording constraint: the pushed text must never contain the word "token" in any casing — the leak
+ * test treats its presence as evidence of an embed credential reaching the model context.
+ */
+export const PUSH_PREAMBLE =
+  'Tableau viz state snapshot — what the user currently sees in the embedded viz. ' +
+  'The `data` rows are a bounded sample, not the full result set. ' +
+  'To analyze the full data behind this view, query the datasource named in `datasources` with the query-datasource tool ' +
+  '(`datasources[].id` may not be a LUID; resolve the datasource by name via list-datasources when it does not match), ' +
+  'translating `filters`, `parameters` and `selection` into query filters. JSON follows.';
 
 const PREAMBLE_BYTES = utf8ByteLength(`${PUSH_PREAMBLE}\n`);
 
