@@ -15,3 +15,6 @@
   (実 viz に対する capture→push 経路の実機検証)
 - [chatgpt-connector/](chatgpt-connector/FINDINGS.md) — ChatGPT カスタムコネクタからの接続
   (取得トークンに API スコープが載らず `initialize` が 403 になる件と、その解消条件)
+- [site-switching/](site-switching/FINDINGS.md) — サイト切替実験の実測
+  (Claude Code の step-up 不発と 401 サイレントリフレッシュ、Tableau Cloud での
+  埋め込み認可サーバー拒否)

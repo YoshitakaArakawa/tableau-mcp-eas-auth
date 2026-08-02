@@ -28,6 +28,9 @@ import { getRecordEventTool } from './recordEvent/recordEvent.js';
 import { getRenderInteractiveVizTool } from './renderInteractiveViz/renderInteractiveViz.js';
 import { getResetConsentTool } from './resetConsent/resetConsent.js';
 import { getRevokeAccessTokenTool } from './revokeAccessToken/revokeAccessToken.js';
+import { getGetCurrentSiteTool } from './siteSwitching/getCurrentSite.js';
+import { getListSitesTool } from './siteSwitching/listSites.js';
+import { getSwitchSiteTool } from './siteSwitching/switchSite.js';
 import { getListUsersTool } from './users/listUsers.js';
 import { getUpdateUserTool } from './users/updateUser.js';
 import { getGetCustomViewDataTool } from './views/getCustomViewData.js';
@@ -79,6 +82,9 @@ export const webToolFactories = [
   getSearchContentTool,
   getRevokeAccessTokenTool,
   getResetConsentTool,
+  getSwitchSiteTool,
+  getGetCurrentSiteTool,
+  getListSitesTool,
   getQueryAdminInsightsTool,
   getDeleteContentTool,
   getConfirmDeleteContentTool,

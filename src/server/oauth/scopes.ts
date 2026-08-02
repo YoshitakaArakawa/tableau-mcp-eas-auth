@@ -134,6 +134,30 @@ export const LIST_FLOW_RUNS_PRIMARY_API_SCOPES: ReadonlyArray<TableauApiScope> =
 export const LIST_FLOW_RUNS_FAILURE_INSIGHT_API_SCOPE: TableauApiScope = 'tableau:flows:read';
 
 /**
+ * Prefix of the per-site scope recorded on a grant and stamped into the access token.
+ *
+ * Site scopes are deliberately NOT part of the supported scope set: clients request every scope
+ * advertised in the protected resource metadata, so listing them would make the initial
+ * authorization ask for every site. They are recorded only, never advertised and never enforced.
+ */
+const SITE_SCOPE_PREFIX = 'tableau:site:';
+
+/**
+ * Builds the site scope for a site content URL, e.g. `site-a` -> `tableau:site:site-a`.
+ */
+export function formatSiteScope(contentUrl: string): string {
+  return `${SITE_SCOPE_PREFIX}${contentUrl}`;
+}
+
+/**
+ * Returns the site content URL carried by a site scope, or undefined when the scope is not a site
+ * scope. A site whose content URL is empty (the Default site) round-trips as an empty string.
+ */
+export function parseSiteScope(scope: string): string | undefined {
+  return scope.startsWith(SITE_SCOPE_PREFIX) ? scope.slice(SITE_SCOPE_PREFIX.length) : undefined;
+}
+
+/**
  * Validates that a scope string is a valid MCP scope
  */
 export async function isValidScope(scope: string): Promise<boolean> {
@@ -318,6 +342,20 @@ const toolScopeMap: Record<
   // Consent lifecycle: no Tableau REST API calls. Bearer-only (Tableau authZ server).
   // Any authenticated user may reset their own consent regardless of granted scopes.
   'reset-consent': {
+    mcp: [],
+    api: new Set<TableauApiScope>(),
+  },
+  // Session site lifecycle: the authorization boundary is the configured allowlist plus the user's
+  // own Tableau access, not an MCP scope. Any authenticated user may move their own session.
+  'switch-site': {
+    mcp: [],
+    api: new Set<TableauApiScope>(),
+  },
+  'get-current-site': {
+    mcp: [],
+    api: new Set<TableauApiScope>(),
+  },
+  'list-sites': {
     mcp: [],
     api: new Set<TableauApiScope>(),
   },

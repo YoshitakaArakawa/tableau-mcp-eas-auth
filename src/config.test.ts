@@ -715,6 +715,7 @@ describe('Config', () => {
       dnsServers: ['1.1.1.1', '1.0.0.1'],
       enforceScopes: true,
       advertiseApiScopes: false,
+      switchableSites: [],
       ...defaultOAuthTimeoutMs,
     } as const;
 
@@ -735,6 +736,7 @@ describe('Config', () => {
         dnsServers: ['1.1.1.1', '1.0.0.1'],
         enforceScopes: true,
         advertiseApiScopes: false,
+        switchableSites: [],
         ...defaultOAuthTimeoutMs,
       });
     });
@@ -819,6 +821,39 @@ describe('Config', () => {
       expect(config.oauth).toEqual({
         ...defaultOAuthConfig,
         globalResourceUris: ['https://global.example.com'],
+      });
+    });
+
+    it('should parse comma-separated OAUTH_SWITCHABLE_SITES into site content URLs', () => {
+      stubDefaultOAuthEnvVars();
+      vi.stubEnv('OAUTH_SWITCHABLE_SITES', 'site-a, site-b');
+
+      const config = new Config();
+      expect(config.oauth).toEqual({
+        ...defaultOAuthConfig,
+        switchableSites: ['site-a', 'site-b'],
+      });
+    });
+
+    it('should map the Default token in OAUTH_SWITCHABLE_SITES to an empty content URL', () => {
+      stubDefaultOAuthEnvVars();
+      vi.stubEnv('OAUTH_SWITCHABLE_SITES', 'default,site-a');
+
+      const config = new Config();
+      expect(config.oauth).toEqual({
+        ...defaultOAuthConfig,
+        switchableSites: ['', 'site-a'],
+      });
+    });
+
+    it('should ignore empty entries in OAUTH_SWITCHABLE_SITES', () => {
+      stubDefaultOAuthEnvVars();
+      vi.stubEnv('OAUTH_SWITCHABLE_SITES', 'site-a,,  ,');
+
+      const config = new Config();
+      expect(config.oauth).toEqual({
+        ...defaultOAuthConfig,
+        switchableSites: ['site-a'],
       });
     });
 

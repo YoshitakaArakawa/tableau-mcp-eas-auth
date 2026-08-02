@@ -50,4 +50,7 @@ export type RefreshTokenData = UserAndTokens & {
   clientId: string;
   expiresAt: number;
   tableauClientId: string;
+  // Site scope of the grant (`tableau:site:<contentUrl>`), recorded for auditing. A grant holds at
+  // most one. Absent for a site whose content URL is empty (the Default site).
+  siteScope?: string;
 };

@@ -1,4 +1,4 @@
-import { KeyObject, randomBytes, timingSafeEqual } from 'crypto';
+import { KeyObject, randomBytes, randomUUID, timingSafeEqual } from 'crypto';
 import express from 'express';
 import { CompactEncrypt } from 'jose';
 import { Err, Ok, Result } from 'ts-results-es';
@@ -12,7 +12,13 @@ import { getSiteLuidFromAccessToken } from '../../utils/getSiteLuidFromAccessTok
 import { setLongTimeout } from '../../utils/setLongTimeout.js';
 import { generateCodeChallenge } from './generateCodeChallenge.js';
 import { mcpTokenSchema } from './schemas.js';
-import { formatScopes, getSupportedScopes, parseScopes, validateScopes } from './scopes.js';
+import {
+  formatScopes,
+  formatSiteScope,
+  getSupportedScopes,
+  parseScopes,
+  validateScopes,
+} from './scopes.js';
 import { AuthorizationCode, ClientCredentials, RefreshTokenData, UserAndTokens } from './types.js';
 
 export const AUDIENCE = 'tableau-mcp-server';
@@ -119,6 +125,7 @@ export function token(
             tokens: authCode.tokens,
             scopes: authCode.scopes,
             siteContentUrl: authCode.siteContentUrl,
+            siteScope: siteScopeFor(authCode.siteContentUrl),
             expiresAt: Math.floor((Date.now() + config.oauth.refreshTokenTimeoutMs) / 1000),
             tableauClientId: authCode.tableauClientId,
           });
@@ -265,6 +272,7 @@ export function token(
             tokens: tokensToStore,
             scopes: tokenData.scopes,
             siteContentUrl: tokenData.siteContentUrl,
+            siteScope: tokenData.siteScope,
             expiresAt: Math.floor((Date.now() + config.oauth.refreshTokenTimeoutMs) / 1000),
             tableauClientId: tokenData.tableauClientId,
           });
@@ -292,6 +300,14 @@ export function token(
 }
 
 /**
+ * Site scope of a grant, or undefined when the site content URL is empty (the Default site) —
+ * `tableau:site:` on its own names no site, so nothing is recorded or stamped for it.
+ */
+export function siteScopeFor(siteContentUrl: string): string | undefined {
+  return siteContentUrl ? formatSiteScope(siteContentUrl) : undefined;
+}
+
+/**
  * Creates JWE access token containing credentials
  *
  * @param tokenData - token data
@@ -300,16 +316,18 @@ export function token(
  */
 async function createAccessToken(tokenData: UserAndTokens, publicKey: KeyObject): Promise<string> {
   const config = getConfig();
+  const siteScope = siteScopeFor(tokenData.siteContentUrl);
 
   const payload = JSON.stringify({
     sub: tokenData.user.name,
     clientId: tokenData.clientId,
     tableauServer: tokenData.server,
+    jti: randomUUID(),
     iat: Math.floor(Date.now() / 1000),
     exp: Math.floor((Date.now() + config.oauth.accessTokenTimeoutMs) / 1000),
     aud: AUDIENCE,
     iss: config.oauth.issuer,
-    scope: formatScopes(tokenData.scopes),
+    scope: formatScopes(siteScope ? [...tokenData.scopes, siteScope] : tokenData.scopes),
     ...(config.auth === 'oauth'
       ? {
           tableauAccessToken: tokenData.tokens.accessToken,
@@ -338,6 +356,7 @@ async function createClientCredentialsAccessToken(
     sub: clientCredentials.clientId,
     clientId: clientCredentials.clientId,
     tableauServer: clientCredentials.server,
+    jti: randomUUID(),
     iat: Math.floor(Date.now() / 1000),
     exp: Math.floor((Date.now() + config.oauth.accessTokenTimeoutMs) / 1000),
     aud: AUDIENCE,
@@ -352,7 +371,12 @@ async function createClientCredentialsAccessToken(
   return jwe;
 }
 
-async function exchangeRefreshToken(
+/**
+ * Exchanges a Tableau refresh token for a new token pair on the given site. The site is expressed
+ * as `site_namespace`, so passing a site other than the grant's current one is what moves a session
+ * to another site.
+ */
+export async function exchangeRefreshToken(
   server: string,
   refreshToken: string,
   clientId: string,

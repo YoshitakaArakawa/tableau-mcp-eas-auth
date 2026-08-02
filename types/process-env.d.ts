@@ -65,6 +65,7 @@ export interface ProcessEnvWeb extends ProcessEnvBase {
   OAUTH_LOCK_SITE: string | undefined;
   OAUTH_CLIENT_ID_SECRET_PAIRS: string | undefined;
   OAUTH_DISABLE_SCOPES: string | undefined;
+  OAUTH_SWITCHABLE_SITES: string | undefined;
   OAUTH_AUTHORIZATION_CODE_TIMEOUT_MS: string | undefined;
   OAUTH_ACCESS_TOKEN_TIMEOUT_MS: string | undefined;
   OAUTH_REFRESH_TOKEN_TIMEOUT_MS: string | undefined;

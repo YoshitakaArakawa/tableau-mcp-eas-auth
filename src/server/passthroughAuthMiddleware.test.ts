@@ -24,6 +24,13 @@ const TOOLS_WITHOUT_API_SCOPES_WITH_PASSTHROUGH_GUARD: ReadonlyArray<WebToolName
   // MCP app event telemetry: no Tableau REST API call. App-only tool that records telemetry
   // regardless of auth type. Safe with passthrough auth as it only sends telemetry events.
   'record-event',
+  // Session site lifecycle: no Tableau REST API call from the tool itself. All three callbacks
+  // return an error for any auth type other than the embedded authorization server's own
+  // ('X-Tableau-Auth'), so passthrough callers are rejected — a passthrough session belongs to no
+  // grant this server can move.
+  'switch-site',
+  'get-current-site',
+  'list-sites',
 ];
 
 describe('passthroughAuthMiddleware', () => {
