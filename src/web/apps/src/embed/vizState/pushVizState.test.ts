@@ -9,7 +9,7 @@ vi.mock('../../shared/recordEventClient.js');
 import { recordEvent } from '../../shared/recordEventClient.js';
 import { captureVizState } from './captureVizState.js';
 import { BASE_CAVEATS, PUSH_BUDGET_BYTES, type VizStatePayload } from './payload.js';
-import { pushVizState } from './pushVizState.js';
+import { PUSH_PREAMBLE, pushVizState } from './pushVizState.js';
 import { utf8ByteLength } from './sanitize.js';
 import {
   FAKE_EMBED_TOKEN,
@@ -69,9 +69,15 @@ describe('pushVizState', () => {
     const text = pushedText(app);
     const [preamble, json] = text.split('\n');
 
-    expect(preamble).toBe(
-      'Tableau viz state snapshot — what the user currently sees in the embedded viz. JSON follows.',
-    );
+    expect(preamble).toBe(PUSH_PREAMBLE);
+    // The guidance must name the current-view framing and the fallback query route.
+    expect(preamble).toContain('what the user currently sees');
+    expect(preamble).toContain('query-datasource');
+    expect(preamble).toContain('bounded sample');
+    expect(preamble).toContain('cross-check');
+    expect(preamble).toContain('viewFilters');
+    // The leak test rejects any pushed text matching /token/i; the preamble must satisfy it too.
+    expect(preamble).not.toMatch(/token/i);
     expect(JSON.parse(json)).toEqual(payload);
   });
 

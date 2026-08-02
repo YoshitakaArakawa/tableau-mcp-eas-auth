@@ -10,7 +10,13 @@ import {
   type VizIdentity,
 } from './captureVizState.js';
 import type { TableauFilter, TableauWorkbook, TableauWorksheet } from './embeddingApiTypes.js';
-import { ACTION_SOURCE_CAVEAT, DASHBOARD_DATA_CAVEAT, type VizStatePayload } from './payload.js';
+import {
+  ACTION_SOURCE_CAVEAT,
+  DASHBOARD_DATA_CAVEAT,
+  DATASOURCE_QUERY_CAVEAT,
+  type DatasourceRef,
+  type VizStatePayload,
+} from './payload.js';
 import {
   makeCategoricalFilter,
   makeDashboardWorkbook,
@@ -591,5 +597,107 @@ describe('captureVizState degraded paths', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('captureVizState datasources', () => {
+  it('captures the sampled sheet datasources and adds the query caveat', async () => {
+    const workbook = workbookWithFilters([], {
+      getDataSourcesAsync: vi
+        .fn()
+        .mockResolvedValue([
+          { name: 'Sample - Superstore', id: 'ds-primary-id' },
+          { name: 'Secondary Source' },
+        ]),
+    });
+
+    const payload = await capture(workbook);
+
+    expect(payload.datasources).toEqual([
+      { name: 'Sample - Superstore', id: 'ds-primary-id' },
+      { name: 'Secondary Source' },
+    ]);
+    expect(payload.caveats).toContain(DATASOURCE_QUERY_CAVEAT);
+  });
+
+  it('stays silent when getDataSourcesAsync is missing (older Embedding API)', async () => {
+    const payload = await capture(workbookWithFilters([]));
+
+    expect(payload.datasources).toBeUndefined();
+    expect(payload.caveats).not.toContain(DATASOURCE_QUERY_CAVEAT);
+    expect(payload.errors).toBeUndefined();
+  });
+
+  it('reports a rejected getDataSourcesAsync without failing the capture', async () => {
+    const workbook = workbookWithFilters([], {
+      getDataSourcesAsync: vi.fn().mockRejectedValue(new Error('sources exploded')),
+    });
+
+    const payload = await capture(workbook);
+
+    expect(payload.datasources).toBeUndefined();
+    expect(payload.errors).toEqual(['datasources unavailable: sources exploded']);
+    expect(payload.data).toBeDefined();
+  });
+
+  it('reads datasources through the shared cache, once per sheet', async () => {
+    const getDataSourcesAsync = vi
+      .fn()
+      .mockResolvedValue([{ name: 'Sample - Superstore', id: 'ds-primary-id' }]);
+    const cache = new Map<string, DatasourceRef[]>();
+
+    const first = await capture(workbookWithFilters([], { getDataSourcesAsync }), {
+      datasourceCache: cache,
+    });
+    const second = await capture(workbookWithFilters([], { getDataSourcesAsync }), {
+      datasourceCache: cache,
+    });
+
+    expect(first.datasources).toEqual([{ name: 'Sample - Superstore', id: 'ds-primary-id' }]);
+    expect(second.datasources).toEqual(first.datasources);
+    expect(getDataSourcesAsync).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not cache a failed datasource read, so the next capture retries', async () => {
+    const getDataSourcesAsync = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('first read exploded'))
+      .mockResolvedValue([{ name: 'Sample - Superstore' }]);
+    const cache = new Map<string, DatasourceRef[]>();
+
+    const first = await capture(workbookWithFilters([], { getDataSourcesAsync }), {
+      datasourceCache: cache,
+    });
+    const second = await capture(workbookWithFilters([], { getDataSourcesAsync }), {
+      datasourceCache: cache,
+    });
+
+    expect(first.datasources).toBeUndefined();
+    expect(second.datasources).toEqual([{ name: 'Sample - Superstore' }]);
+    expect(getDataSourcesAsync).toHaveBeenCalledTimes(2);
+  });
+
+  it('caps the datasources and drops entries with no usable identity', async () => {
+    const workbook = workbookWithFilters([], {
+      getDataSourcesAsync: vi
+        .fn()
+        .mockResolvedValue([
+          { name: 'One' },
+          { name: 'Two' },
+          { name: 'Three' },
+          { name: 'Four (dropped by cap)' },
+        ]),
+    });
+
+    const payload = await capture(workbook);
+
+    expect(payload.datasources?.map((ref) => ref.name)).toEqual(['One', 'Two', 'Three']);
+
+    const emptyPayload = await capture(
+      workbookWithFilters([], { getDataSourcesAsync: vi.fn().mockResolvedValue([{}, null]) }),
+    );
+
+    expect(emptyPayload.datasources).toBeUndefined();
+    expect(emptyPayload.caveats).not.toContain(DATASOURCE_QUERY_CAVEAT);
   });
 });

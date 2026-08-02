@@ -20,6 +20,9 @@ export const MAX_FILTER_VALUES = 50;
 export const MAX_SELECTED_MARKS = 100;
 export const MAX_FIELD_ID_LENGTH = 120;
 
+/** Datasources kept per snapshot. The first one is the primary datasource per the Embedding API. */
+export const MAX_DATASOURCES = 3;
+
 /** Filter values kept per filter once the payload has to be squeezed (ladder rung 5). */
 const SQUEEZED_FILTER_VALUES = 5;
 
@@ -54,6 +57,13 @@ export type FilterSnapshot = {
   note?: string; // e.g. unrecognized filter type
 };
 
+/**
+ * A datasource of the sampled worksheet. `id` is the Embedding API's DataSource.id — documented
+ * only as "a unique string"; whether it equals the published datasource LUID is unverified, which
+ * is why the push guidance tells the model to resolve by name when the id does not match anything.
+ */
+export type DatasourceRef = { name: string; id?: string };
+
 export type VizStatePayload = {
   capturedAt: string;
   workbook: { name?: string; luid?: string };
@@ -62,6 +72,8 @@ export type VizStatePayload = {
   filters: FilterSnapshot[];
   parameters: Array<{ name: string; value: string }>;
   selection: { marks: string[][]; columns: string[]; truncated: boolean };
+  /** Datasources of the worksheet whose summary data was sampled. First entry is the primary. */
+  datasources?: DatasourceRef[];
   data?: {
     sheet: string;
     columns: string[];
@@ -90,6 +102,10 @@ export const DASHBOARD_DATA_CAVEAT =
 /** Attached when any filter was classified as action-sourced. */
 export const ACTION_SOURCE_CAVEAT =
   "'source: action' is inferred from the filter name prefix and may misclassify a user field literally named 'Action (...)'";
+
+/** Attached when datasources were captured, so a model querying them knows the parity limits. */
+export const DATASOURCE_QUERY_CAVEAT =
+  'datasources belong to the sampled worksheet; sheet-level calculated fields, LOD expressions and table calcs may not exist in the datasource, so query results can differ from on-screen aggregates';
 
 export function serializePayload(payload: VizStatePayload): string {
   return JSON.stringify(payload);
@@ -151,7 +167,9 @@ export function fitPayloadToBudget(
     measure();
   }
 
-  // Rung 6: identity only. What was captured, and why nothing else is here.
+  // Rung 6: identity only. What was captured, and why nothing else is here. The datasource refs
+  // survive when present: they are a couple hundred bytes, and they matter most exactly here —
+  // when the data did not fit, the model's only route to it is querying the datasource.
   if (bytes > budgetBytes) {
     const identity: VizStatePayload = {
       capturedAt: working.capturedAt,
@@ -161,6 +179,7 @@ export function fitPayloadToBudget(
       filters: [],
       parameters: [],
       selection: { marks: [], columns: [], truncated: true },
+      ...(working.datasources !== undefined && { datasources: working.datasources }),
       caveats: working.caveats,
       errors: [...(working.errors ?? []), IDENTITY_ONLY_ERROR],
     };

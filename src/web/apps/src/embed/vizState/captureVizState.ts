@@ -35,7 +35,10 @@ import {
   ACTION_SOURCE_CAVEAT,
   BASE_CAVEATS,
   DASHBOARD_DATA_CAVEAT,
+  DATASOURCE_QUERY_CAVEAT,
+  type DatasourceRef,
   type FilterSnapshot,
+  MAX_DATASOURCES,
   MAX_FIELD_ID_LENGTH,
   MAX_FILTER_VALUES,
   MAX_SELECTED_MARKS,
@@ -73,6 +76,13 @@ export type CaptureOptions = {
   now?: () => Date;
   /** Injectable queue, so timeout behaviour is testable. Aborted before this function returns. */
   queue?: SerialQueue;
+  /**
+   * Cross-capture cache of datasource refs, keyed by sheet name. The docs warn that
+   * `getDataSourcesAsync` can hurt viz responsiveness, and a sheet's datasources do not change
+   * within a page's life, so the bridge shares one cache across every capture it runs. A failed
+   * read is not cached — it retries on the next capture.
+   */
+  datasourceCache?: Map<string, DatasourceRef[]>;
 };
 
 /**
@@ -323,6 +333,8 @@ export async function captureVizState(options: CaptureOptions): Promise<VizState
     }
 
     // --- Summary data --------------------------------------------------------------------------
+    let dataSheet: TableauWorksheet | undefined;
+
     if (!aborted) {
       const readable = sheets.filter(
         (sheet) => typeof sheet.getSummaryDataReaderAsync === 'function',
@@ -332,7 +344,7 @@ export async function captureVizState(options: CaptureOptions): Promise<VizState
           ? undefined
           : readable.find((sheet) => sheet.name === options.preferredSheetName);
 
-      const dataSheet = preferred ?? readable[0] ?? sheets[0];
+      dataSheet = preferred ?? readable[0] ?? sheets[0];
 
       if (dataSheet === undefined) {
         errors.push(SUMMARY_DATA_MISSING_API_ERROR);
@@ -348,6 +360,23 @@ export async function captureVizState(options: CaptureOptions): Promise<VizState
       }
     }
 
+    // --- Datasources (of the sampled sheet) ------------------------------------------------------
+    // Read for the same sheet whose data was sampled: that is the sheet the model would re-query.
+    // A viz without the API stays silent — the refs are an enhancement, and an error line per
+    // capture on older Embedding APIs would be pure noise.
+    if (!aborted && dataSheet !== undefined) {
+      const datasources = await captureDatasources(dataSheet, queue, options.datasourceCache);
+
+      if (datasources instanceof CaptureAbortedError) {
+        noteAbort(datasources);
+      } else if (typeof datasources === 'string') {
+        errors.push(datasources);
+      } else if (datasources.length > 0) {
+        payload.datasources = datasources;
+        payload.caveats.push(DATASOURCE_QUERY_CAVEAT);
+      }
+    }
+
     return finalize();
   } catch (error) {
     // Belt and braces: nothing above is expected to escape, but a capture must never reject.
@@ -356,6 +385,55 @@ export async function captureVizState(options: CaptureOptions): Promise<VizState
   } finally {
     // Releases the overall timer. Idempotent, and the only thing that stops the queue's clock.
     queue.abort('disposed');
+  }
+}
+
+/**
+ * Reads the sampled sheet's datasource refs, through the shared cache when one is supplied.
+ *
+ * Returns the refs on success (possibly empty), an error line on a failed read, or the
+ * `CaptureAbortedError` itself when the queue aborted so the caller can stop the pipeline.
+ */
+async function captureDatasources(
+  sheet: TableauWorksheet,
+  queue: SerialQueue,
+  cache: Map<string, DatasourceRef[]> | undefined,
+): Promise<DatasourceRef[] | string | CaptureAbortedError> {
+  const cacheKey = typeof sheet.name === 'string' ? sheet.name : '';
+  const cached = cache?.get(cacheKey);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  const getDataSources = sheet.getDataSourcesAsync;
+  if (typeof getDataSources !== 'function') {
+    return [];
+  }
+
+  try {
+    const sources = await queue.run(`getDataSourcesAsync:${sanitizeString(sheet.name)}`, () =>
+      getDataSources.call(sheet),
+    );
+
+    const refs = (sources ?? [])
+      .slice(0, MAX_DATASOURCES)
+      .map((source) => {
+        const ref: DatasourceRef = { name: sanitizeString(source?.name) };
+        if (source?.id !== undefined) {
+          ref.id = sanitizeString(source.id, MAX_FIELD_ID_LENGTH);
+        }
+        return ref;
+      })
+      .filter((ref) => ref.name !== '' || ref.id !== undefined);
+
+    cache?.set(cacheKey, refs);
+    return refs;
+  } catch (error) {
+    if (error instanceof CaptureAbortedError) {
+      return error;
+    }
+
+    return `datasources unavailable: ${errorText(error)}`;
   }
 }
 

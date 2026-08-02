@@ -60,6 +60,13 @@ export type TableauDataTableReader = {
 
 export type GetSummaryDataOptions = { ignoreSelection?: boolean };
 
+/**
+ * A worksheet's datasource. Doc-sourced rather than phase-0 observed: the reference describes `id`
+ * only as "a unique string representing the data source" — whether it equals the published
+ * datasource LUID is undocumented and pending runtime verification.
+ */
+export type TableauDataSource = { name?: string; id?: string };
+
 export type TableauMarksCollection = { data?: TableauDataTable[] };
 
 export type TableauWorksheet = {
@@ -72,6 +79,12 @@ export type TableauWorksheet = {
     pageRowCount?: number,
     options?: GetSummaryDataOptions,
   ) => Promise<TableauDataTableReader>;
+  /**
+   * Doc-sourced (not phase-0 observed). The docs warn this call "might negatively impact
+   * performance and responsiveness", so callers must cache the result rather than re-read it on
+   * every capture.
+   */
+  getDataSourcesAsync?: () => Promise<TableauDataSource[]>;
 };
 
 /** A dashboard activeSheet carries `worksheets`; a worksheet activeSheet does not. */

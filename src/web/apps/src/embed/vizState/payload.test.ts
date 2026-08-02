@@ -202,6 +202,24 @@ describe('fitPayloadToBudget', () => {
     expect(parsed.errors).toContain(IDENTITY_ONLY_ERROR);
   });
 
+  it('keeps the datasource refs through the identity-only rung', () => {
+    const payload = makePayload({
+      caveats: ['short'],
+      filters: makeFatFilters(20, 60),
+      datasources: [{ name: 'Sample - Superstore', id: 'ds-id' }],
+    });
+
+    const result = fitPayloadToBudget(payload, 600);
+    const parsed = JSON.parse(result.text) as VizStatePayload;
+
+    expect(result.bytes).toBeLessThanOrEqual(600);
+    expect(parsed.filters).toEqual([]);
+    // Identity rung: when the data did not fit, the datasource ref is the model's only route to
+    // it, so it is the one non-identity field that survives.
+    expect(parsed.datasources).toEqual([{ name: 'Sample - Superstore', id: 'ds-id' }]);
+    expect(parsed.errors).toContain(IDENTITY_ONLY_ERROR);
+  });
+
   it('preserves pre-existing errors when falling back to identity', () => {
     const payload = makePayload({
       caveats: ['short'],

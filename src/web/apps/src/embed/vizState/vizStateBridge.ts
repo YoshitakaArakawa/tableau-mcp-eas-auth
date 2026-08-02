@@ -21,7 +21,7 @@ import type { App } from '@modelcontextprotocol/ext-apps';
 import { captureVizState, type VizIdentity } from './captureVizState.js';
 import { createDebouncer } from './debounce.js';
 import { TABLEAU_VIZ_EVENTS, type TableauVizElement } from './embeddingApiTypes.js';
-import type { VizStatePayload } from './payload.js';
+import type { DatasourceRef, VizStatePayload } from './payload.js';
 import { pushVizState } from './pushVizState.js';
 
 /**
@@ -74,6 +74,12 @@ export function startVizStateBridge(options: VizStateBridgeOptions): () => void 
   let consecutiveTimeouts = 0;
 
   /**
+   * Shared across every capture this bridge runs: a sheet's datasources do not change within a
+   * page's life, and `getDataSourcesAsync` is documented as expensive enough to hurt the viz.
+   */
+  const datasourceCache = new Map<string, DatasourceRef[]>();
+
+  /**
    * Last worksheet named by an event, used to pick which sheet's summary data to sample. Nothing in
    * the capture reads the event otherwise — the event is only a trigger.
    */
@@ -98,7 +104,7 @@ export function startVizStateBridge(options: VizStateBridgeOptions): () => void 
     capturing = true;
 
     try {
-      const payload = await captureVizState({ viz, identity, preferredSheetName });
+      const payload = await captureVizState({ viz, identity, preferredSheetName, datasourceCache });
 
       // Disposed mid-capture: the element this bridge watched is gone (a new tool result replaced
       // it, or the app is tearing down). Pushing now would advertise a stale view as current.

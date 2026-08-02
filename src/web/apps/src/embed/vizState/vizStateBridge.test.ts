@@ -94,6 +94,7 @@ describe('startVizStateBridge', () => {
       viz,
       identity: IDENTITY,
       preferredSheetName: undefined,
+      datasourceCache: expect.any(Map),
     });
     expect(vi.mocked(pushVizState)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(pushVizState)).toHaveBeenCalledWith(app, payload);
