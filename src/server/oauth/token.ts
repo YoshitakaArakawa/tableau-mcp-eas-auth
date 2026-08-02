@@ -303,7 +303,7 @@ export function token(
  * Site scope of a grant, or undefined when the site content URL is empty (the Default site) —
  * `tableau:site:` on its own names no site, so nothing is recorded or stamped for it.
  */
-function siteScopeFor(siteContentUrl: string): string | undefined {
+export function siteScopeFor(siteContentUrl: string): string | undefined {
   return siteContentUrl ? formatSiteScope(siteContentUrl) : undefined;
 }
 
@@ -371,7 +371,12 @@ async function createClientCredentialsAccessToken(
   return jwe;
 }
 
-async function exchangeRefreshToken(
+/**
+ * Exchanges a Tableau refresh token for a new token pair on the given site. The site is expressed
+ * as `site_namespace`, so passing a site other than the grant's current one is what moves a session
+ * to another site.
+ */
+export async function exchangeRefreshToken(
   server: string,
   refreshToken: string,
   clientId: string,

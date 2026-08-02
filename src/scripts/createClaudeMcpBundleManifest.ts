@@ -572,6 +572,15 @@ const envVars = {
     required: false,
     sensitive: false,
   },
+  OAUTH_SWITCHABLE_SITES: {
+    includeInUserConfig: false,
+    type: 'string',
+    title: 'OAuth Switchable Sites',
+    description:
+      'Comma-separated site content URLs the session may be switched to after authorization. Use Default for the Default site. Empty disables site switching.',
+    required: false,
+    sensitive: false,
+  },
   OAUTH_AUTHORIZATION_CODE_TIMEOUT_MS: {
     includeInUserConfig: false,
     type: 'number',

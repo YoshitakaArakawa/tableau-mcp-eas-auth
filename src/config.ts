@@ -12,6 +12,7 @@ import { isTransport } from './transports.js';
 import invariant from './utils/invariant.js';
 import { milliseconds } from './utils/milliseconds.js';
 import { parseNumber } from './utils/parseNumber.js';
+import { toSiteContentUrl } from './utils/siteName.js';
 
 const authTypes = ['pat', 'uat', 'direct-trust', 'eas', 'oauth'] as const;
 type AuthType = (typeof authTypes)[number];
@@ -70,6 +71,7 @@ export class Config extends BaseConfig {
     dnsServers: string[];
     enforceScopes: boolean;
     advertiseApiScopes: boolean;
+    switchableSites: string[];
   };
   telemetry: TelemetryConfig;
   latencyMetricName: string;
@@ -148,6 +150,7 @@ export class Config extends BaseConfig {
       OAUTH_ACCESS_TOKEN_TIMEOUT_MS: accessTokenTimeoutMs,
       OAUTH_REFRESH_TOKEN_TIMEOUT_MS: refreshTokenTimeoutMs,
       OAUTH_DISABLE_SCOPES: oauthDisableScopes,
+      OAUTH_SWITCHABLE_SITES: oauthSwitchableSites,
       TELEMETRY_PROVIDER: telemetryProvider,
       TELEMETRY_PROVIDER_CONFIG: telemetryProviderConfig,
       FEATURE_GATE_PROVIDER: featureGateProvider,
@@ -268,6 +271,15 @@ export class Config extends BaseConfig {
         : null,
       enforceScopes,
       advertiseApiScopes: advertiseApiScopes === 'true',
+      // Sites the session may be switched to after authorization. Empty (the default) disables site
+      // switching entirely: the tools are not registered and the switch endpoint is not mounted.
+      switchableSites: oauthSwitchableSites
+        ? oauthSwitchableSites
+            .split(',')
+            .map((site) => site.trim())
+            .filter(Boolean)
+            .map(toSiteContentUrl)
+        : [],
     };
 
     if (

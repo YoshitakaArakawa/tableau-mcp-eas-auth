@@ -11,6 +11,7 @@ import { getSiteLuidFromAccessToken } from '../../utils/getSiteLuidFromAccessTok
 import { buildResourceIdentifier, stripTrailingSlash } from './resourceIdentifier.js';
 import {
   mcpAccessTokenSchema,
+  McpAccessTokenSubOnly,
   mcpAccessTokenUserOnlySchema,
   TableauAuthInfo,
   tableauBearerTokenSchema,
@@ -34,6 +35,60 @@ export abstract class AccessTokenValidator {
   abstract validate(token: string): Promise<AccessTokenValidatorResult>;
 }
 
+/**
+ * Decrypts an embedded-AS access token and applies every check that does not touch Tableau:
+ * schema, issuer, audience, expiry, and individual (jti) revocation.
+ *
+ * Shared by the validator and the site switch endpoint so both reject exactly the same tokens.
+ * The decrypted payload is returned alongside the claims because callers that need the Tableau
+ * session re-parse it with `mcpAccessTokenSchema`.
+ */
+export async function decryptEmbeddedAccessToken({
+  token,
+  privateKey,
+  revokedJtis,
+  issuer,
+}: {
+  token: string;
+  privateKey: KeyObject;
+  revokedJtis: ReadonlyMap<string, true>;
+  issuer: string;
+}): Promise<Result<{ payload: unknown; claims: McpAccessTokenSubOnly }, string>> {
+  let payload: unknown;
+  try {
+    const { plaintext } = await compactDecrypt(token, privateKey);
+    payload = JSON.parse(new TextDecoder().decode(plaintext));
+  } catch (error) {
+    log({
+      message: 'Embedded access token validation error',
+      level: 'error',
+      logger: 'oauth',
+      data: error,
+    });
+    return new Err('Invalid or expired access token');
+  }
+
+  const mcpAccessToken = mcpAccessTokenUserOnlySchema.safeParse(payload);
+  if (!mcpAccessToken.success) {
+    return Err(`Invalid access token: ${fromError(mcpAccessToken.error).toString()}`);
+  }
+
+  const { iss, aud, exp, jti } = mcpAccessToken.data;
+  if (iss !== issuer || aud !== AUDIENCE || exp < Math.floor(Date.now() / 1000)) {
+    // https://github.com/modelcontextprotocol/inspector/issues/608
+    // MCP Inspector Not Using Refresh Token for Token Validation
+    return new Err('Invalid or expired access token');
+  }
+
+  // Individually revoked tokens are rejected before any Tableau REST call so a revoked token
+  // costs a single Map lookup. Tokens issued without a jti predate the claim and pass through.
+  if (jti && revokedJtis.has(jti)) {
+    return new Err('Invalid or expired access token');
+  }
+
+  return Ok({ payload, claims: mcpAccessToken.data });
+}
+
 export class EmbeddedAccessTokenValidator extends AccessTokenValidator {
   private readonly privateKey: KeyObject;
   private readonly revokedJtis: ReadonlyMap<string, true>;
@@ -47,32 +102,21 @@ export class EmbeddedAccessTokenValidator extends AccessTokenValidator {
 
   async validate(token: string): Promise<AccessTokenValidatorResult> {
     try {
-      const { plaintext } = await compactDecrypt(token, this.privateKey);
-      const payload = JSON.parse(new TextDecoder().decode(plaintext));
+      const decrypted = await decryptEmbeddedAccessToken({
+        token,
+        privateKey: this.privateKey,
+        revokedJtis: this.revokedJtis,
+        issuer: this.config.oauth.issuer,
+      });
 
-      const mcpAccessToken = mcpAccessTokenUserOnlySchema.safeParse(payload);
-      if (!mcpAccessToken.success) {
-        return Err(`Invalid access token: ${fromError(mcpAccessToken.error).toString()}`);
+      if (decrypted.isErr()) {
+        return new Err(decrypted.error);
       }
 
-      const { iss, aud, exp, jti, clientId } = mcpAccessToken.data;
-      if (
-        iss !== this.config.oauth.issuer ||
-        aud !== AUDIENCE ||
-        exp < Math.floor(Date.now() / 1000)
-      ) {
-        // https://github.com/modelcontextprotocol/inspector/issues/608
-        // MCP Inspector Not Using Refresh Token for Token Validation
-        return new Err('Invalid or expired access token');
-      }
+      const { payload, claims } = decrypted.value;
+      const { exp, clientId } = claims;
 
-      // Individually revoked tokens are rejected before any Tableau REST call so a revoked token
-      // costs a single Map lookup. Tokens issued without a jti predate the claim and pass through.
-      if (jti && this.revokedJtis.has(jti)) {
-        return new Err('Invalid or expired access token');
-      }
-
-      const tokenScopes = parseScopes(mcpAccessToken.data.scope);
+      const tokenScopes = parseScopes(claims.scope);
       let tableauAuthInfo: TableauAuthInfo;
       if (this.config.auth === 'oauth') {
         const mcpAccessToken = mcpAccessTokenSchema.safeParse(payload);
@@ -122,7 +166,7 @@ export class EmbeddedAccessTokenValidator extends AccessTokenValidator {
           siteName,
         };
       } else {
-        const { tableauUserId, tableauSiteId, tableauServer, sub } = mcpAccessToken.data;
+        const { tableauUserId, tableauSiteId, tableauServer, sub } = claims;
         tableauAuthInfo = {
           type: 'X-Tableau-Auth',
           username: sub,
@@ -137,7 +181,7 @@ export class EmbeddedAccessTokenValidator extends AccessTokenValidator {
         token,
         clientId,
         scopes: tokenScopes,
-        expiresAt: payload.exp,
+        expiresAt: exp,
         extra: tableauAuthInfo,
       });
     } catch (error) {

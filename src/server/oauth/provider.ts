@@ -17,6 +17,7 @@ import { authorize } from './authorize.js';
 import { callback } from './callback.js';
 import { register } from './register.js';
 import { revoke } from './revoke.js';
+import { switchSite } from './switchSite.js';
 import { token } from './token.js';
 import { AuthorizationCode, PendingAuthorization, RefreshTokenData } from './types.js';
 
@@ -105,6 +106,17 @@ export class EmbeddedOAuthProvider extends OAuthProvider {
 
     // oauth2/revoke
     revoke(app, this.refreshTokens, this.privateKey, this.refreshTokenIndex);
+
+    // oauth2/switchSite — only exists when an allowlist names sites to switch to
+    if (this.config.oauth.switchableSites.length > 0) {
+      switchSite(
+        app,
+        this.refreshTokens,
+        this.privateKey,
+        this.refreshTokenIndex,
+        this.revokedJtis,
+      );
+    }
   }
 
   private getPrivateKey(): KeyObject {
