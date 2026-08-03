@@ -185,6 +185,19 @@ export class WorkbookNotFoundError extends McpToolError {
   }
 }
 
+export class PulseMetricNotFoundError extends McpToolError {
+  constructor(metricId: string) {
+    super({
+      type: 'pulse-metric-not-found',
+      // The batch-get endpoint answers 200 with an empty list for an id that does not resolve, so
+      // "not found" here also covers "the id is a definition id, not a metric id" — the most common
+      // caller mistake.
+      message: `No Pulse metric was found with ID ${metricId}. Verify the ID is a Pulse metric ID, not a metric definition ID.`,
+      statusCode: 404,
+    });
+  }
+}
+
 export class ZodiosValidationError extends McpToolError {
   constructor(error: ZodiosError) {
     super({

@@ -26,6 +26,7 @@ import { getListPulseMetricSubscriptionsTool } from './pulse/listMetricSubscript
 import { getQueryDatasourceTool } from './queryDatasource/queryDatasource.js';
 import { getRecordEventTool } from './recordEvent/recordEvent.js';
 import { getRenderInteractiveVizTool } from './renderInteractiveViz/renderInteractiveViz.js';
+import { getRenderPulseMetricTool } from './renderPulseMetric/renderPulseMetric.js';
 import { getResetConsentTool } from './resetConsent/resetConsent.js';
 import { getRevokeAccessTokenTool } from './revokeAccessToken/revokeAccessToken.js';
 import { getListUsersTool } from './users/listUsers.js';
@@ -45,6 +46,7 @@ export const webToolFactories = [
   getEmbedTokenTool,
   getRecordEventTool,
   getRenderInteractiveVizTool,
+  getRenderPulseMetricTool,
   getListDatasourcesTool,
   getResolveDatasourceLuidTool,
   getListExtractRefreshTasksTool,
