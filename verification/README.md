@@ -15,3 +15,5 @@
   (実 viz に対する capture→push 経路の実機検証)
 - [chatgpt-connector/](chatgpt-connector/FINDINGS.md) — ChatGPT カスタムコネクタからの接続
   (取得トークンに API スコープが載らず `initialize` が 403 になる件と、その解消条件)
+- [pulse-embed/](pulse-embed/FINDINGS.md) — Pulse メトリック埋め込み(`<tableau-pulse>`)で
+  実測確定した事実(`insights:embed` 単独では不足・DOM イベント名・detail 形式)
