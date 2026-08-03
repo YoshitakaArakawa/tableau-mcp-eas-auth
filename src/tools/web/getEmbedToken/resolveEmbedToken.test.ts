@@ -1,7 +1,12 @@
 import { decodeJwt, exportPKCS8, generateKeyPair } from 'jose';
 
 import { AuthConfig } from '../../../sdks/tableau/authConfig.js';
-import { EMBED_SCOPE, resolveEmbedToken } from './resolveEmbedToken.js';
+import {
+  EMBED_SCOPE,
+  PULSE_EMBED_SCOPE,
+  PULSE_EMBED_SCOPES,
+  resolveEmbedToken,
+} from './resolveEmbedToken.js';
 
 const directTrustAuthConfig: AuthConfig = {
   type: 'direct-trust',
@@ -48,6 +53,27 @@ describe('resolveEmbedToken', () => {
     const payload = decodeJwt(result.unwrap().token);
     expect(payload.custom).toBe('value');
     expect(payload.other).toBe(123);
+  });
+
+  it('signs the requested scope set when one is supplied', async () => {
+    const result = await resolveEmbedToken({
+      authConfig: directTrustAuthConfig,
+      scopes: PULSE_EMBED_SCOPES,
+    });
+
+    expect(result.isOk()).toBe(true);
+    // Order matters only for the assertion; what matters functionally is that BOTH are present —
+    // a Pulse embed fails partway through rendering with the insights scope alone.
+    expect(decodeJwt(result.unwrap().token).scp).toEqual([EMBED_SCOPE, PULSE_EMBED_SCOPE]);
+  });
+
+  it('ignores the AuthConfig sign-in scopes and uses the embed scopes', async () => {
+    const result = await resolveEmbedToken({
+      authConfig: { ...directTrustAuthConfig, scopes: new Set(['tableau:content:read']) },
+    });
+
+    expect(result.isOk()).toBe(true);
+    expect(decodeJwt(result.unwrap().token).scp).toEqual([EMBED_SCOPE]);
   });
 
   it('returns not-available for pat AuthConfig', async () => {

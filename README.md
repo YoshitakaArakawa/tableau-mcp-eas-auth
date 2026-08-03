@@ -160,6 +160,28 @@ Embedding API / VDS の制約は [AI-DASHBOARD-NOTES.md](AI-DASHBOARD-NOTES.md) 
 事実は [verification/viz-state/ACCEPTANCE.md](verification/viz-state/ACCEPTANCE.md) に
 記録してある。
 
+## Pulse メトリックの埋め込み(このフォークの追加機能)
+
+`render-pulse-metric` は Tableau Pulse メトリックを `<tableau-pulse>` として iframe に描画する。
+viz 側(`render-interactive-viz` + `embed-viz` バンドル)と対称の構成で、専用の単一ファイル HTML
+バンドル `embed-pulse`(`mcp-pulse.html`)を持つ。フィルター・期間・提示されたインサイトは
+viz と同じく `updateModelContext` でモデルコンテキストへ push する。
+
+**スナップショットに数値は入らない。** `<tableau-pulse>` には要約データを読む API が無く、
+メトリック値は Pulse のインサイト API の担当だからである。数値が要るときは
+`generate-pulse-metric-value-insight-bundle` か `query-datasource` を使う旨を、push する
+プリアンブルとツール結果のガイダンス文の両方に明記してある。
+
+### 埋め込みトークンのスコープ
+
+**Pulse 埋め込みは `tableau:insights:embed` と `tableau:views:embed` の両方を要求する。**
+公式ドキュメントに後者が必要である旨の記載はない。`insights:embed` 単独だと embed signin は
+200 で通るのに後続 API が 401 になり、ユーザーにはセッション切れとして見える
+(実測値と切り分け手順は [verification/pulse-embed/FINDINGS.md](verification/pulse-embed/FINDINGS.md))。
+
+このため `get-embed-token` は任意パラメータ `target`(`viz` / `pulse`)を取る。省略時は従来どおり
+`views:embed` 単独で署名するため、viz 経路の挙動は変わらない。
+
 ## Tableau Server への読み替え
 
 Server では EAS 登録が TSM(サーバー単位)になる、JWKS の公開露出が不要になる、

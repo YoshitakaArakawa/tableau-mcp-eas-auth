@@ -6,7 +6,7 @@ import invariant from '../../../utils/invariant.js';
 import { Provider } from '../../../utils/provider.js';
 import { getMockRequestHandlerExtra } from '../toolContext.mock.js';
 import { getEmbedTokenTool } from './getEmbedToken.js';
-import { EMBED_SCOPE } from './resolveEmbedToken.js';
+import { EMBED_SCOPE, PULSE_EMBED_SCOPE } from './resolveEmbedToken.js';
 
 const MOCK_TOKEN = 'eyJhbGciOiJIUzI1NiJ9.dGVzdC1wYXlsb2Fk.signature';
 
@@ -44,7 +44,7 @@ describe('getEmbedTokenTool', () => {
     const tool = getEmbedTokenTool(new WebMcpServer());
     const annotations = await Provider.from(tool.annotations);
     expect(tool.name).toBe('get-embed-token');
-    expect(tool.paramsSchema).toEqual({});
+    expect(tool.paramsSchema).toMatchObject({ target: expect.any(Object) });
     expect(annotations?.readOnlyHint).toBe(true);
     expect(annotations?.openWorldHint).toBe(false);
   });
@@ -86,6 +86,33 @@ describe('getEmbedTokenTool', () => {
     const payload = decodeJwt(response.token);
     expect(payload.scp).toEqual([EMBED_SCOPE]);
     expect(payload.sub).toBe('embed-user@example.com');
+  });
+
+  it('signs both embed scopes when target is pulse', async () => {
+    const extra = getMockRequestHandlerExtra();
+    setDirectTrust(extra);
+
+    const result = await getToolResult(extra, { target: 'pulse' });
+
+    expect(result.isError).toBe(false);
+    invariant(result.content[0].type === 'text');
+    const response = JSON.parse(result.content[0].text);
+    const payload = decodeJwt(response.token);
+    // Pulse needs the views scope IN ADDITION to the insights scope; insights alone is not enough
+    // (measured — see verification/pulse-embed/FINDINGS.md).
+    expect(payload.scp).toEqual([EMBED_SCOPE, PULSE_EMBED_SCOPE]);
+  });
+
+  it('signs the viz scope set when target is explicitly viz', async () => {
+    const extra = getMockRequestHandlerExtra();
+    setDirectTrust(extra);
+
+    const result = await getToolResult(extra, { target: 'viz' });
+
+    expect(result.isError).toBe(false);
+    invariant(result.content[0].type === 'text');
+    const response = JSON.parse(result.content[0].text);
+    expect(decodeJwt(response.token).scp).toEqual([EMBED_SCOPE]);
   });
 
   it('returns a not-available error when no token can be produced (pat without Bearer)', async () => {
@@ -244,8 +271,11 @@ describe('getEmbedTokenTool', () => {
   });
 });
 
-async function getToolResult(extra: Extra): Promise<CallToolResult> {
+async function getToolResult(
+  extra: Extra,
+  args: { target?: 'viz' | 'pulse' } = {},
+): Promise<CallToolResult> {
   const tool = getEmbedTokenTool(new WebMcpServer());
   const callback = await Provider.from(tool.callback);
-  return await callback({}, extra);
+  return await callback(args, extra);
 }

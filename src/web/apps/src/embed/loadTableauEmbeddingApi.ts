@@ -1,16 +1,24 @@
 /**
  * Loads the Tableau Embedding API script from the Tableau server
+ *
+ * @param viewUrl - Any URL on the Tableau server; only its origin is used.
+ * @param elementName - The custom element the caller intends to mount. The script defines several
+ *   ('tableau-viz', 'tableau-pulse', ...), and "loaded" has to mean "the one I need is defined":
+ *   waiting on 'tableau-viz' while mounting a `<tableau-pulse>` would report success too eagerly.
  */
-export function loadTableauEmbeddingApi(viewUrl: string): Promise<void> {
+export function loadTableauEmbeddingApi(
+  viewUrl: string,
+  elementName: 'tableau-viz' | 'tableau-pulse' = 'tableau-viz',
+): Promise<void> {
   return new Promise((resolve, reject) => {
     // Check if custom elements are available (may be blocked in sandboxed iframes)
     if (!('customElements' in window)) {
-      reject(new Error('Custom elements are not available. Cannot access tableau-viz element'));
+      reject(new Error(`Custom elements are not available. Cannot access ${elementName} element`));
       return;
     }
 
     // Check if already loaded
-    if (customElements.get('tableau-viz')) {
+    if (customElements.get(elementName)) {
       resolve();
       return;
     }
@@ -27,7 +35,7 @@ export function loadTableauEmbeddingApi(viewUrl: string): Promise<void> {
     // This catches runtime errors that onload would miss
     script.onload = () => {
       // Race between custom element definition and 15 second timeout
-      const definedPromise = customElements.whenDefined('tableau-viz');
+      const definedPromise = customElements.whenDefined(elementName);
       const timeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(() => {
           reject(new Error('Tableau Embedding API failed to load within 15 seconds'));

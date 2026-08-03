@@ -330,6 +330,17 @@ const toolScopeMap: Record<
     mcp: ['tableau:mcp:view:read', 'tableau:mcp:workbook:read'],
     api: new Set(['tableau:content:read', ...RESOURCE_ACCESS_CHECKER_REQUIRED_API_SCOPES]),
   },
+  // Resolves the metric (insight_metrics:read) and then its definition, for the display name
+  // (insight_definitions_metrics:read). The Pulse EMBED scopes are not listed here: they are
+  // signed into the embed JWT by get-embed-token, not drawn from the caller's session scopes.
+  'render-pulse-metric': {
+    mcp: ['tableau:mcp:pulse:read'],
+    api: new Set([
+      'tableau:insight_metrics:read',
+      'tableau:insight_definitions_metrics:read',
+      'tableau:mcp_site_settings:read',
+    ]),
+  },
   // Dispatches on `kind` to ts-events, site-content, job-performance (raw VDS) or stale-content
   // (server-side anti-join). Union of the scopes required by all four kinds.
   'query-admin-insights': {
@@ -397,6 +408,7 @@ async function getEnabledToolNames(): Promise<Set<WebToolName>> {
     enabledTools.delete('get-embed-token');
     enabledTools.delete('record-event');
     enabledTools.delete('render-interactive-viz');
+    enabledTools.delete('render-pulse-metric');
     enabledTools.delete('confirm-update-cloud-extract-refresh-task');
     enabledTools.delete('confirm-delete-content');
   }

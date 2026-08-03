@@ -44,10 +44,12 @@ describe('server', () => {
         'delete-content',
       ];
       // These tools are gated by the mcp-apps feature (disabled by default in features.json):
-      // get-embed-token and render-interactive-viz, plus the app-only record-event and confirm-* tools.
+      // get-embed-token, render-interactive-viz and render-pulse-metric, plus the app-only
+      // record-event and confirm-* tools.
       const mcpAppsTools: ReadonlyArray<WebToolName> = [
         'get-embed-token',
         'render-interactive-viz',
+        'render-pulse-metric',
         'record-event',
         'confirm-delete-content',
         'confirm-update-cloud-extract-refresh-task',
@@ -156,10 +158,12 @@ describe('server', () => {
         'delete-content',
       ];
       // These tools are gated by the mcp-apps feature (disabled by default in features.json):
-      // get-embed-token and render-interactive-viz, plus the app-only record-event and confirm-* tools.
+      // get-embed-token, render-interactive-viz and render-pulse-metric, plus the app-only
+      // record-event and confirm-* tools.
       const mcpAppsTools: ReadonlyArray<WebToolName> = [
         'get-embed-token',
         'render-interactive-viz',
+        'render-pulse-metric',
         'record-event',
         'confirm-delete-content',
         'confirm-update-cloud-extract-refresh-task',
