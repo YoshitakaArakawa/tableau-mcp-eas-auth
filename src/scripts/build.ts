@@ -100,6 +100,7 @@ const globalValues: Record<GlobalIdentifierName, string> = {
     // Each entry is a self-contained, single-file HTML bundled by functionality, and now
     // lives inside its feature folder next to its entry .ts:
     // - embed/mcp-app.html: embeds a Tableau viz (get-view / get-workbook).
+    // - pulse/mcp-pulse.html: embeds a Tableau Pulse metric (render-pulse-metric).
     // - hitl/hitl-confirm.html: the MCP-Apps HITL confirm panel for delete/update preview tools.
     // Setting `root` to each feature folder makes viteSingleFile emit the output flat as
     // dist/<name>.html (the dist filenames appConfig.ts + server.web.ts depend on are unchanged).
@@ -107,6 +108,7 @@ const globalValues: Record<GlobalIdentifierName, string> = {
     // share the dist directory.
     const htmlEntries = [
       { root: resolve(appsDir, 'src/embed'), html: 'mcp-app.html' },
+      { root: resolve(appsDir, 'src/pulse'), html: 'mcp-pulse.html' },
       { root: resolve(appsDir, 'src/hitl'), html: 'hitl-confirm.html' },
     ];
 

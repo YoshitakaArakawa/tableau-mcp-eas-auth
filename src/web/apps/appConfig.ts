@@ -4,12 +4,14 @@ import { WebToolName } from '../../tools/web/toolName.js';
  * The MCP App bundles the server ships. Each maps to a self-contained, single-file HTML built by
  * `src/scripts/build.ts`, bundled by functionality:
  * - `embed-viz`: embeds a Tableau viz (get-view / get-workbook).
+ * - `embed-pulse`: embeds a Tableau Pulse metric (render-pulse-metric).
  * - `hitl-confirm`: the MCP-Apps HITL confirm panel for delete/update preview tools.
  */
-export type AppBundle = 'embed-viz' | 'hitl-confirm';
+export type AppBundle = 'embed-viz' | 'embed-pulse' | 'hitl-confirm';
 
 const BUNDLE_HTML: Record<AppBundle, string> = {
   'embed-viz': 'mcp-app.html',
+  'embed-pulse': 'mcp-pulse.html',
   'hitl-confirm': 'hitl-confirm.html',
 };
 

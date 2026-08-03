@@ -1,0 +1,20 @@
+/**
+ * Pulse-specific styles, layered on top of shared/mcp-app.css.
+ *
+ * The shared sheet sizes `tableau-viz`; the Pulse element needs the same treatment under its own
+ * tag name. `min-height` on `.main` is overridden because a Pulse metric — especially in the `card`
+ * and `ban` layouts — is far shorter than a dashboard, and the viz sheet's 600px floor would leave
+ * most of the widget empty.
+ */
+
+.main {
+  min-height: 0;
+}
+
+tableau-pulse {
+  width: 100%;
+  max-height: 1200px;
+  overflow-y: auto;
+  display: block;
+  transition: height 0.3s ease;
+}
