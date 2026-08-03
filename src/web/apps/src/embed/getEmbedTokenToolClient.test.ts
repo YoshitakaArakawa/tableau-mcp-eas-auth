@@ -30,6 +30,23 @@ describe('callGetEmbedTokenTool', () => {
     });
   });
 
+  it('should pass the target through when one is given', async () => {
+    const mockApp = {
+      getHostCapabilities: vi.fn().mockReturnValue({ serverTools: {} }),
+      callServerTool: vi.fn().mockResolvedValue({
+        content: [{ type: 'text', text: JSON.stringify({ token: 'pulse-token' }) }],
+      }),
+    };
+
+    const token = await callGetEmbedTokenTool(mockApp as any, 'pulse');
+
+    expect(token).toBe('pulse-token');
+    expect(mockApp.callServerTool).toHaveBeenCalledWith({
+      name: 'get-embed-token',
+      arguments: { target: 'pulse' },
+    });
+  });
+
   it('should throw error when response format is unexpected (non-text content)', async () => {
     const mockApp = {
       getHostCapabilities: vi.fn().mockReturnValue({ serverTools: {} }),

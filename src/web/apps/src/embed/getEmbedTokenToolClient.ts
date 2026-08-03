@@ -17,14 +17,19 @@ const embedTokenDataSchema = z.object({
   token: z.string(),
 });
 
+/** Which embedded element the token is for. Selects the scope set the server signs. */
+export type EmbedTokenTarget = 'viz' | 'pulse';
+
 /**
  * Calls the get-embed-token tool to retrieve the embed token from the MCP server.
  * @param app - The MCP App instance
+ * @param target - Which embedded element the token is for. Omitted for a viz, so the call stays
+ *   byte-identical to what it always was; 'pulse' asks for the additional Pulse embed scope.
  * @returns The embed token string.
  * @throws When no token is available for the current configuration (e.g. PAT
  *   without an embed credential), surfacing the server's error message.
  */
-export async function callGetEmbedTokenTool(app: App): Promise<string> {
+export async function callGetEmbedTokenTool(app: App, target?: EmbedTokenTarget): Promise<string> {
   // Ensure the host allows calling server tools before attempting to retrieve the token.
   // If unsupported, throw so the caller's top-level handler can surface an error to the user.
   const capabilities = app.getHostCapabilities();
@@ -36,7 +41,7 @@ export async function callGetEmbedTokenTool(app: App): Promise<string> {
 
   const result = await app.callServerTool({
     name: 'get-embed-token',
-    arguments: {},
+    arguments: target === undefined ? {} : { target },
   });
 
   // No token available for this configuration (e.g. PAT without an embed credential):
