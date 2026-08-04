@@ -1,8 +1,9 @@
 # Pulse 埋め込み(`<tableau-pulse>`)— 実測で確定した事実
 
-実施日: 20260803
+実施日: 20260803(結果 1〜3)、20260804 追測(結果 4〜5)
 対象: Tableau Pulse メトリックの Embedding API v3 埋め込み(`render-pulse-metric` 機能の前提調査)
-結果: **スコープ要件・イベント名・サイズ通知形式の 3 点を実機で確定**
+結果: **スコープ要件・イベント名・サイズ通知形式に加え、読み取り API の戻り値の形と
+インサイトイベントの発火条件を実機で確定**
 
 ## この記録の位置づけ
 
@@ -26,6 +27,13 @@
 2. 同じ Pulse メトリック URL を `src` に持つ `<tableau-pulse>` を、それぞれの JWT でマウントする
 3. Network タブで embed signin 以降のリクエストのステータスを記録する
 4. 要素に届く DOM イベントを全件記録する
+
+20260804 の追測(結果 4〜5)は同じハーネスにプローブを足したもので、手順の要点は次のとおり:
+
+1. 完全描画を待ってから `getFiltersAsync()` / `getTimeDimensionAsync()` を呼ぶ
+2. 戻り値ごとに `typeof` / `Object.keys()` / `Object.getOwnPropertyNames(prototype)` を記録する
+   (JSON 化だけでは prototype getter が見えず、own キーの下線接頭辞にも気づけない)
+3. 描画完了から一定時間、`pulseinsightdiscovered` の受信件数を数える(無操作のまま)
 
 ## 結果 1: Pulse 埋め込みには `tableau:views:embed` も必須
 
@@ -78,14 +86,58 @@ viz 経路は `VIZ_EMBED_SCOPES`(`views:embed` 単独)のまま変えていな�
 viz 側の `firstvizsizeknown` が `detail.vizSize.sheetSize.maxSize.height` という入れ子だったのに対し、
 Pulse は `detail._height` のフラットな形式である。**同じ書き方は通用しない。**
 
+## 結果 4: 読み取り API の戻り値の形(20260804 追測)
+
+20260803 時点で未確定として残していた項目である。マウント直後の `<tableau-pulse>` に対して
+両 API を呼び、戻り値の own キーとプロトタイプキーを列挙して確定した。
+
+### `getTimeDimensionAsync()` は**文字列**を返す
+
+**確定した事実: オブジェクトではなく素の文字列である。** 実測値は `"MonthToDate"`(`typeof` は
+`"string"`)。フィールド名も粒度も伴わない、期間の呼び名だけが返る。
+
+これは実害のある食い違いだった。実装は当初オブジェクト前提で読んでいたため、文字列は
+どのキーにも当たらず `undefined` を返し、スナップショットから `timeDimension` が
+**常に黙って落ちていた**。文字列経路を足し、値を `range` として記録するよう修正した。
+
+### `getFiltersAsync()` の要素は下線接頭辞の own キーを持つ
+
+**確定した事実: own キーは `_fieldName` / `_filterType` / `_metricId` / `_registryId` /
+`_appliedValues` / `_isExcludeMode` / `_isAllSelected` の 7 つ。**
+プロトタイプには getter として `isAllSelected` / `appliedValues` / `isExcludeMode` があり、
+加えて `getDomainAsync` を持つ。`fieldName` や `field` の getter は**無い**。
+
+つまりフィールド名と演算子は `_fieldName` / `_filterType` からしか読めない。実装の候補キーには
+どちらも入っていなかったため、この環境では field と operator が空のまま記録されていた。
+
+もう 1 点、無操作状態のフィルターは `_appliedValues: []` と `_isAllSelected: true` の組で返る。
+**値の空配列は「絞り込み無し(全選択)」を意味し、「読めなかった」ではない。**
+この 2 つを区別できるよう、スナップショットに `isAllSelected` / `isExcludeMode` を追加した。
+
+実測した要素のうち `_metricId` はメトリックの LUID を持つが、スナップショットには
+whitelist していない(識別子を push する必要が無いため)。
+
+補足(実装には未反映): 同セッションで `applyFilterAsync` を試すと以降の
+`getFiltersAsync()` / `getTimeDimensionAsync()` が `internal-error: Service not registered:
+PulseService` で失敗するようになった。書き込み系メソッドは型宣言から意図的に外してあり
+(`pulseEmbeddingApiTypes.ts`)、読み取り専用の本実装はこの経路を踏まない。
+
+## 結果 5: `pulseinsightdiscovered` は初期描画では発火しない
+
+**確定した事実: メトリックが完全に描画され、画面にインサイト文が表示されている状態でも、
+`pulseinsightdiscovered` の受信件数は 0 件だった。** イベントはユーザーがウィジェット内で
+インサイトを展開するなど探索操作をして初めて届く。
+
+したがって **スナップショットの `insights: []` は「画面にインサイトが無い」ことを意味しない。**
+モデルがこれを「インサイト無し」と読むと事実に反する断定をするため、payload の固定 caveat に
+この旨を 1 行追加した(`pulsePayload.ts` の `BASE_PULSE_CAVEATS`)。
+
 ## 未確定として残したもの
 
 正直に区別しておく。以下は今回の測定では確定していない。
 
-- `getFiltersAsync()` / `getTimeDimensionAsync()` の**戻り値の正確な形**。呼び出しが成功すること
-  までは確認したが、フィールド名の網羅は取れていない。実装側はこれを踏まえ、複数の候補キーを
-  許容して読み、どれにも当たらない場合は「読めなかった」と記録する寛容な射影にしてある
-  (`src/web/apps/src/pulse/pulseState/capturePulseState.ts`)
+- `_filterType` が `categorical` 以外に何を取るか(日付・数値フィルターでの値)
+- `getTimeDimensionAsync()` が返す文字列の値域。`MonthToDate` 以外の綴りは未確認
 - `pulseerror` の `_httpStatus` が 401/403 以外で何を返すかの網羅
 - MCP Apps ホスト内での full E2E。viz 側と同じくホストの CSP 制約
   (anthropics/claude-ai-mcp Issue #40)の影響下にあり、実ホストでの確認は再デプロイ後に行う

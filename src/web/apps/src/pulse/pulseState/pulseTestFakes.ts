@@ -24,6 +24,30 @@ export function makePulseFilter(overrides: Record<string, unknown> = {}): Record
   };
 }
 
+/**
+ * A filter in the shape actually measured against Embedding API 3.16.0 on 20260804: underscore-
+ * prefixed own keys, and an empty applied-values list paired with `_isAllSelected: true`.
+ *
+ * Kept alongside `makePulseFilter` rather than replacing it — the tolerant projection has to keep
+ * reading both, because the underscore names are internal and can change without notice.
+ */
+export function makeMeasuredPulseFilter(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    _fieldName: 'Region',
+    _filterType: 'categorical',
+    // Present in the real shape and deliberately NOT whitelisted: the exact-shape assertion in the
+    // capture test doubles as proof that unrecognized keys are dropped rather than passed through.
+    _metricId: 'fake-metric-id',
+    _registryId: 0,
+    _appliedValues: [],
+    _isExcludeMode: false,
+    _isAllSelected: true,
+    ...overrides,
+  };
+}
+
 export function makeTimeDimension(
   overrides: Record<string, unknown> = {},
 ): Record<string, unknown> {

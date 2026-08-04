@@ -16,6 +16,7 @@ import {
   makeFakePulseElement,
   makeHangingPulseElement,
   makeInsightDetail,
+  makeMeasuredPulseFilter,
 } from './pulseTestFakes.js';
 
 const IDENTITY = { id: 'metric-1', name: 'Weekly Sales' };
@@ -124,6 +125,100 @@ describe('capturePulseState', () => {
     const payload = await capturePulseState({ pulse, identity: IDENTITY });
 
     expect(payload.filters[0]).toMatchObject({ field: 'Segment', values: ['Consumer'] });
+  });
+
+  // The shape below is the one measured against Embedding API 3.16.0 on 20260804: underscore-
+  // prefixed own keys, and an empty applied-values list that means "everything is selected".
+  it('reads the measured underscore-prefixed filter shape', async () => {
+    const pulse = makeFakePulseElement({
+      getFiltersAsync: vi.fn().mockResolvedValue([makeMeasuredPulseFilter()]),
+    });
+
+    const payload = await capturePulseState({ pulse, identity: IDENTITY });
+
+    expect(payload.filters[0]).toEqual({
+      field: 'Region',
+      operator: 'categorical',
+      values: [],
+      valuesTruncated: false,
+      isExcludeMode: false,
+      isAllSelected: true,
+    });
+    expect(payload.filters[0].note).toBeUndefined();
+  });
+
+  it('reads the measured filter shape through prototype getters', async () => {
+    // The real filter exposes `appliedValues` / `isExcludeMode` / `isAllSelected` on the prototype
+    // as well, so the projection must not depend on them being own keys.
+    const prototype = {
+      get appliedValues(): unknown[] {
+        return [{ formattedValue: 'West' }];
+      },
+      get isExcludeMode(): boolean {
+        return true;
+      },
+      get isAllSelected(): boolean {
+        return false;
+      },
+    };
+    const filter = Object.assign(Object.create(prototype) as object, {
+      _fieldName: 'Region',
+      _filterType: 'categorical',
+    });
+
+    const pulse = makeFakePulseElement({
+      getFiltersAsync: vi.fn().mockResolvedValue([filter]),
+    });
+
+    const payload = await capturePulseState({ pulse, identity: IDENTITY });
+
+    expect(payload.filters[0]).toMatchObject({
+      field: 'Region',
+      operator: 'categorical',
+      values: ['West'],
+      isExcludeMode: true,
+      isAllSelected: false,
+    });
+  });
+
+  it('omits the boolean filter flags when they are not booleans', async () => {
+    const pulse = makeFakePulseElement({
+      getFiltersAsync: vi.fn().mockResolvedValue([
+        {
+          _fieldName: 'Region',
+          _appliedValues: [],
+          _isExcludeMode: 'false',
+          _isAllSelected: 1,
+        },
+      ]),
+    });
+
+    const payload = await capturePulseState({ pulse, identity: IDENTITY });
+
+    expect(payload.filters[0].isExcludeMode).toBeUndefined();
+    expect(payload.filters[0].isAllSelected).toBeUndefined();
+  });
+
+  // Measured 20260804: the call resolves to a bare string ('MonthToDate'), not to an object.
+  it('reads a time dimension that arrives as a bare string', async () => {
+    const pulse = makeFakePulseElement({
+      getTimeDimensionAsync: vi.fn().mockResolvedValue('MonthToDate'),
+    });
+
+    const payload = await capturePulseState({ pulse, identity: IDENTITY });
+
+    expect(payload.timeDimension).toEqual({ range: 'MonthToDate' });
+    expect(payload.errors).toBeUndefined();
+  });
+
+  it('omits the time dimension when the string is empty', async () => {
+    const pulse = makeFakePulseElement({
+      getTimeDimensionAsync: vi.fn().mockResolvedValue('   '),
+    });
+
+    const payload = await capturePulseState({ pulse, identity: IDENTITY });
+
+    expect(payload.timeDimension).toBeUndefined();
   });
 
   it('omits the time dimension when nothing recognizable came back', async () => {
