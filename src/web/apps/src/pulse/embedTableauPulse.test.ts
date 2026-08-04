@@ -129,6 +129,7 @@ describe('embedTableauPulse', () => {
     );
 
     expect(onAuthError).toHaveBeenCalledTimes(1);
+    expect(onAuthError).toHaveBeenCalledWith('pulseerror status=401');
     expect(onLoadError).not.toHaveBeenCalled();
   });
 
@@ -161,6 +162,7 @@ describe('embedTableauPulse', () => {
     );
 
     expect(onAuthError).toHaveBeenCalledTimes(1);
+    expect(onAuthError).toHaveBeenCalledWith('session-expired navigation');
   });
 
   it('ignores an ordinary navigation', () => {

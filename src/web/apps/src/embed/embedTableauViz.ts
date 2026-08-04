@@ -29,14 +29,15 @@ export function createTableauVizElement(vizUrl: string, token: string): HTMLElem
  * Embeds a Tableau visualization into the tableauVizContainer element
  * @param vizUrl - The URL of the Tableau view to embed
  * @param token - The OAuth Bearer token for authentication
- * @param onError - Optional callback to handle viz load errors
+ * @param onError - Optional callback to handle viz load errors. `cause` carries what could be
+ *   recovered from the `vizloaderror` event's `detail`, for telemetry.
  * @returns The mounted tableau-viz element, or undefined when the container is missing.
  *   Callers need the element itself to subscribe to viz events.
  */
 export function embedTableauViz(
   vizUrl: string,
   token: string,
-  onError?: () => void,
+  onError?: (cause: string) => void,
 ): HTMLElement | undefined {
   const container = document.getElementById(TABLEAU_VIZ_CONTAINER_ID);
 
@@ -75,10 +76,32 @@ export function embedTableauViz(
   // If incorrect, runtime token rejection/expiry will not surface the error UI.
   viz.addEventListener('vizloaderror', (event) => {
     console.error('[mcp-app] tableau-viz reported a load error', event);
-    onError?.();
+    onError?.(describeVizLoadError(event as CustomEvent));
   });
 
   container.replaceChildren(viz);
 
   return viz;
+}
+
+/**
+ * Bounded description of a `vizloaderror` event, for telemetry.
+ *
+ * The event's `detail` shape is NOT authoritative — see the comment on the listener above — so this
+ * only takes a best-effort string out of it rather than asserting a shape. A `message` field is used
+ * when present (matches what's been observed); otherwise the whole `detail` is serialized, capped
+ * well under the record-event message limit.
+ */
+function describeVizLoadError(event: CustomEvent): string {
+  const detail = event.detail as { message?: unknown } | undefined;
+
+  if (typeof detail?.message === 'string') {
+    return `vizloaderror: ${detail.message}`;
+  }
+
+  try {
+    return `vizloaderror: ${JSON.stringify(detail).slice(0, 200)}`;
+  } catch {
+    return 'vizloaderror event';
+  }
 }

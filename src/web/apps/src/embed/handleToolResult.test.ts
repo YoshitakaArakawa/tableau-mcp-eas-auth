@@ -264,6 +264,13 @@ describe('handleToolResult', () => {
 
     // Assert embedTableauViz was NOT called
     expect(vi.mocked(embedTableauViz)).not.toHaveBeenCalled();
+
+    // The cause distinguishes a minting failure from a runtime vizloaderror in telemetry.
+    expect(recordEvent).toHaveBeenCalledWith(
+      mockApp,
+      'AUTH_ERROR',
+      'mint failed: Token minting failed',
+    );
   });
 
   it('runtime: replaces viz with error UI when vizloaderror fires after embedding', async () => {
@@ -286,7 +293,7 @@ describe('handleToolResult', () => {
       const viz = document.createElement('tableau-viz');
       container?.replaceChildren(viz);
       // Simulate runtime vizloaderror event
-      onError?.();
+      onError?.('vizloaderror: Authentication failed');
       return viz;
     });
 
@@ -308,6 +315,14 @@ describe('handleToolResult', () => {
     );
     expect(errorElement?.querySelector('.mcp-app-error-message')?.textContent).toBe(
       'Authentication was unsuccessful.',
+    );
+
+    // The cause reported by embedTableauViz reaches record-event, so a runtime vizloaderror is
+    // distinguishable from a minting failure in telemetry.
+    expect(recordEvent).toHaveBeenCalledWith(
+      mockApp,
+      'AUTH_ERROR',
+      'vizloaderror: Authentication failed',
     );
   });
 

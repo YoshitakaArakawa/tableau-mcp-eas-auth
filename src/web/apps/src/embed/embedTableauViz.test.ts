@@ -263,7 +263,39 @@ describe('embedTableauViz', () => {
 
     vizElement.dispatchEvent(event);
 
-    // Should call the onError callback
+    // Should call the onError callback with a cause built from the event detail
     expect(onErrorSpy).toHaveBeenCalledTimes(1);
+    expect(onErrorSpy).toHaveBeenCalledWith('vizloaderror: Authentication failed');
+  });
+
+  it('falls back to a serialized detail when vizloaderror has no message field', () => {
+    const vizUrl = 'https://prod-uswest-c.online.tableau.com/site/mysite/views/workbook/view';
+    const token = 'test-token-123';
+    const onErrorSpy = vi.fn();
+
+    embedTableauViz(vizUrl, token, onErrorSpy);
+
+    const container = document.getElementById('tableauVizContainer');
+    const vizElement = container?.querySelector('tableau-viz') as HTMLElement;
+
+    vizElement.dispatchEvent(new CustomEvent('vizloaderror', { detail: { code: 401 } }));
+
+    expect(onErrorSpy).toHaveBeenCalledWith('vizloaderror: {"code":401}');
+  });
+
+  it('falls back to a static cause when vizloaderror has no detail', () => {
+    const vizUrl = 'https://prod-uswest-c.online.tableau.com/site/mysite/views/workbook/view';
+    const token = 'test-token-123';
+    const onErrorSpy = vi.fn();
+
+    embedTableauViz(vizUrl, token, onErrorSpy);
+
+    const container = document.getElementById('tableauVizContainer');
+    const vizElement = container?.querySelector('tableau-viz') as HTMLElement;
+
+    vizElement.dispatchEvent(new CustomEvent('vizloaderror'));
+
+    // CustomEvent defaults `detail` to null (not undefined) when not passed.
+    expect(onErrorSpy).toHaveBeenCalledWith('vizloaderror: null');
   });
 });
