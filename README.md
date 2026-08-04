@@ -1,13 +1,25 @@
-# Tableau MCP — EAS auth mode fork
+# Tableau MCP — MCP Apps 強化フォーク
 
 > **これは [tableau/tableau-mcp](https://github.com/tableau/tableau-mcp) の実験的フォークです。**
 > 本家プロダクトの README・ドキュメント・Issue・サポートは upstream と
 > [公式ドキュメント](https://tableau.github.io/tableau-mcp/) を参照してください。
-> This is an experimental fork of tableau/tableau-mcp adding an `AUTH=eas` mode. For the official
-> product, please refer to the upstream repository.
+> This is an experimental fork of tableau/tableau-mcp focused on strengthening its MCP Apps
+> features (embedded viz / Pulse). For the official product, please refer to the upstream
+> repository.
 
-このフォークは認証モード **`AUTH=eas`(Connected App / OAuth 2.0 Trust = 外部認可サーバー)** を
-追加する。MCP サーバー自身を Tableau サイトに EAS として登録し、サーバーが保持する RS256 鍵で
+このフォークは tableau-mcp の **MCP Apps 機能(チャット UI 内への Tableau 埋め込み)を強化する**。
+追加しているものは3つ:
+
+- **`AUTH=eas`(Connected App / OAuth 2.0 Trust = 外部認可サーバー)** — per-user の
+  埋め込み JWT を成立させる認証モード(次節)
+- **Viz 状態スナップショット** — 埋め込み viz の操作状態をモデルコンテキストへ push する
+  ([後述](#viz-状態スナップショットこのフォークの追加機能))
+- **Pulse メトリックの埋め込み** — `render-pulse-metric`
+  ([後述](#pulse-メトリックの埋め込みこのフォークの追加機能))
+
+## EAS 認証モード(`AUTH=eas`)
+
+MCP サーバー自身を Tableau サイトに EAS として登録し、サーバーが保持する RS256 鍵で
 REST サインイン用 JWT と埋め込み用 JWT の両方を署名する。ゴールは、ユーザー体験を
 「OAuth リダイレクトで Tableau にログインし、サイトを選ぶだけ」に保ったまま、MCP Apps の
 per-user 埋め込み viz を成立させること。設定方法と環境変数は
