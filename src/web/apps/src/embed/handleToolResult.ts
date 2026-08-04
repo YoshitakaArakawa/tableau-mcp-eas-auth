@@ -104,6 +104,23 @@ function isVizMounted(): boolean {
 }
 
 /**
+ * Bounded description of an unparseable delivery, for telemetry. What hosts re-deliver on a
+ * re-mount is undocumented and has only ever been understood from these reports, so the head of
+ * the raw delivery rides along with the parse error. A render delivery carries no secrets (a view
+ * URL plus content identity), and the head is capped well under the record-event message limit.
+ */
+function describeUnparseableDelivery(e: unknown, result: CallToolResult): string {
+  let head: string;
+  try {
+    head = JSON.stringify(result).slice(0, 700);
+  } catch {
+    head = '<unserializable delivery>';
+  }
+  const error = e instanceof Error ? e.message : String(e);
+  return `${error.slice(0, 200)} | delivery head: ${head}`;
+}
+
+/**
  * Handles a tool result from an embed-Tableau-viz tool (get-view / get-workbook) and embeds the viz.
  * @param app - The MCP App instance
  * @param result - The tool result containing the view URL
@@ -132,10 +149,10 @@ export async function handleToolResult(app: App, result: CallToolResult): Promis
   } catch (e) {
     if (isVizMounted()) {
       console.warn('[mcp-app] ignored an unparseable re-delivery; keeping the mounted viz', e);
-      recordEvent(app, 'PARSE_ERROR_IGNORED', e);
+      recordEvent(app, 'PARSE_ERROR_IGNORED', describeUnparseableDelivery(e, result));
       return;
     }
-    showError('PARSE_ERROR', e, app);
+    showError('PARSE_ERROR', describeUnparseableDelivery(e, result), app);
     return;
   }
 
