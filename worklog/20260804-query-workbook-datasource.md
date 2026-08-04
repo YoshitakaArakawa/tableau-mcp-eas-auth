@@ -163,13 +163,123 @@ datasource refs と違ってキャッシュしない。
 
 **実機での E2E は未実施**。ホスト経由でモデルが新ツールを正しく呼ぶかは未確認。
 
+---
+
+# 追記: datasources をダッシュボード配下の全ワークシートへ拡張
+
+日付: 20260804(同日、上記実装の直後)
+
+## 背景
+
+初版は `getDataSourcesAsync()` を**サンプリングした1シート**にだけ呼んでいた。
+モデルから見ると「画面に5枚シートがあるのに、クエリできるデータソースは1枚分」になる。
+サンプル行が載らなかったシートについて訊かれたとき、到達手段が無かった。
+
+実機検証(FINDINGS 追記分)で拡張の前提が揃った:
+
+- 全ワークシート列挙と各シートの `getDataSourcesAsync()` はエラー0で動く
+- 同一データソースを参照するシートは**同一 id 文字列**を返す → id での dedup が成立
+- **セッションは viz 単位でシート横断に効く**。非先頭シート固有の id も同一セッションで
+  read-metadata / query とも 200。ツール側の設計変更は不要だった
+- 所要は約 150ms/シート で線形(2〜5シートで実測)。逐次で実用上十分
+
+## 変更内容
+
+- `captureVizState.ts`: `collectDatasources()` を新設。`sheets` 全体を既存の SerialQueue 経由で
+  直列に読み、id(無ければ name)で重複排除した和集合を作る。各エントリに
+  `worksheets: string[]`(昇順)を付与。1シートの失敗はそのシートだけ degrade し、
+  他シートの収集は続行。**abort されたら部分和集合を破棄せず載せる**
+- `payload.ts`: `DatasourceRef.worksheets`、`VizStatePayload.datasourcesTruncated`、
+  `MAX_DATASOURCES_TOTAL = 8`。`MAX_DATASOURCES = 3` は「1シートあたり」に再定義
+- `pushVizState.ts`: preamble に「datasources は全シート分」「`worksheets` で帰属が分かる」
+  「どれも同じ `vds` でクエリできる」を追加
+- 両 caveat の文言を「datasources は全シート、`data` サンプルは1シート分だけ」に更新
+
+## 設計判断
+
+### 並び順は「サンプルシート優先」
+
+和集合の先頭はサンプルシート(`dataSheet`)のデータソース、その中は
+`getDataSourcesAsync()` の返却順(= primary 先頭)。続いて残りのシートを画面順に、
+各シートは未出のものだけ寄与する。モデルは上から読むので、**実際に見えているデータの
+裏にあるデータソースが最初に来る**性質を保存したかった。
+`preferredSheetName` でサンプルシートが変われば並びも追従する(テストで固定)。
+
+### 上限は「1シート3件 / 全体8件」の二段
+
+`MAX_DATASOURCES = 3` を per-sheet の意味に**再定義**した(置き換えではなく)。
+既存テスト(1シート4件 → 3件に切り詰め)がそのまま per-sheet の仕様として生き、
+差分が小さい。全体上限 8 を超えた分は末尾から捨て、`datasourcesTruncated: true` を立てる。
+末尾から捨てるのは、上記の並び順により**最も関係の薄いものが末尾にいる**ため。
+
+### `worksheets` は常時付与(単一シートでも)
+
+条件付きで付けると「無い = 帰属不明」なのか「無い = 単一シート」なのか読み手が判別できない。
+一貫して付ける。シート名が空文字のときだけ省略する。
+
+### キャッシュには `worksheets` を焼き込まない
+
+`datasourceCache` はブリッジ単位でキャプチャをまたいで共有される。マージ段で
+`{...ref}` にコピーしてから `worksheets` を付けるので、キャッシュ内のオブジェクトは
+生の per-sheet ref のままになる。焼き込むと前回キャプチャのシート一覧が次回に漏れる。
+テストでキャッシュの中身を直接検査して固定した。
+
+### abort 時に部分結果を残す
+
+シート数ぶん呼び出しが増えるぶんハングの機会も増える。10シート超の線形性は未確認。
+途中で `CaptureAbortedError` が出たら、そこまでの和集合を `payload.datasources` に載せてから
+abort を記録する。モデルが訊いてもいないシートの失敗で、読めていたデータソースまで
+失う理由がない。
+
+## isPublished 欠落疑いの調査(結論: コード側に欠陥なし)
+
+ホスト側 E2E でスナップショットをダンプさせたところ `datasources` に `isPublished` が
+見当たらない、という疑いが出たため経路を追った。
+
+実機側の事実(`dashboard-enum-result.json`): `getDataSourcesAsync()` が返す
+DataSource は `isPublished: true` / `typeof === "boolean"` / `'isPublished' in ds === true`。
+5シートすべてで欠損なし。つまり読み取り元は健全。
+
+コード側を `captureDatasources` → キャッシュ → `collectDatasources` → `payload` →
+`fitPayloadToBudget` → `pushVizState` と追ったが、**落とす箇所は無かった**:
+
+- `captureDatasources` は `typeof source?.isPublished === 'boolean'` で拾って ref に載せる
+- キャッシュに入るのはその ref そのもの。キャッシュヒット時もそのまま返る
+- マージのコピーは `{...ref}` / `{...ref, worksheets}` で全フィールド保持
+- 予算はしごは `datasources` の中身に触れない(identity rung でも丸ごと保持)
+- デプロイ済みコミット(8c3936cf)の該当ブロックは現行と同一
+
+テストで固定した(いずれも初回で通過、修正不要だった):
+
+- キャッシュヒット経由で `isPublished` が保存され、かつキャッシュ側には
+  `worksheets` が焼き込まれないこと
+- 実キャプチャ→push の全経路で、押し出された生文字列に `"isPublished":true` が
+  literal で含まれること
+
+**結論**: 送信側は `isPublished` を確かに載せている。ホスト側ダンプでの欠落は、
+モデルがコンテキストを**要約して復唱した**際の脱落である可能性が高い(モデルの
+コンテキスト再現は逐語シリアライズではない)。コード変更は行っていない。
+再確認するなら、モデルに要約させず `isPublished` の値だけを直接問う形が確実。
+
+## 検証(拡張分)
+
+- `npm test`: 2949 passed / 1 failed(既存の `features/init.test.ts` パス区切りのみ)
+- `npm run lint`: 触ったファイルはクリーン(残りは git 管理外 `.work/` のみ)
+- `npm run build`: 成功
+- 新規テスト: 和集合と dedup、順序(サンプルシート優先・`preferredSheetName` 追従)、
+  `worksheets` ラベルの昇順、id が無い場合の name dedup、1シート失敗の degrade、
+  全体上限と `datasourcesTruncated`、abort 時の部分和集合、
+  `isPublished` のキャッシュ経由保存と push 経路での literal 保持
+
 ## 残課題
 
 - **cross-user のコンテンツ権限検査**(最重要・未実施)。「スコープは持つが対象データソースの
   閲覧権限を持たない別ユーザー」がセッション値を使えてしまうかは未測定。
   多ユーザー環境で有効化する前に実測すること
 - セッション寿命の上限と、失効時のエラーコード(26.6 分で観測打ち切り)
-- 実機 E2E(iframe → push → モデルがツール呼び出し)の確認
 - `getVizQLDataServiceSessionInfo()` が同期か非同期かの確定
 - ビズのフィルタ状態を VDS クエリの `filters` に自動翻訳する経路。現状はモデル任せで、
   caveat で注意喚起しているだけ
+- 10シート超のダッシュボードでの所要時間の線形性(未確認。abort 時の部分和集合が保険)
+- 全シート拡張後の実機 E2E(サンプルされていないシートのデータソースをモデルが
+  選べるか)は未実施

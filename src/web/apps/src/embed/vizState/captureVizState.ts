@@ -39,6 +39,7 @@ import {
   type DatasourceRef,
   type FilterSnapshot,
   MAX_DATASOURCES,
+  MAX_DATASOURCES_TOTAL,
   MAX_FIELD_ID_LENGTH,
   MAX_FILTER_VALUES,
   MAX_SELECTED_MARKS,
@@ -363,20 +364,29 @@ export async function captureVizState(options: CaptureOptions): Promise<VizState
       }
     }
 
-    // --- Datasources (of the sampled sheet) ------------------------------------------------------
-    // Read for the same sheet whose data was sampled: that is the sheet the model would re-query.
-    // A viz without the API stays silent — the refs are an enhancement, and an error line per
-    // capture on older Embedding APIs would be pure noise.
-    if (!aborted && dataSheet !== undefined) {
-      const datasources = await captureDatasources(dataSheet, queue, options.datasourceCache);
+    // --- Datasources (union across every on-screen worksheet) -----------------------------------
+    // Every worksheet is read, not just the sampled one: on a dashboard the interesting datasource
+    // is often behind a sheet whose data did not fit the sample. A viz without the API stays silent
+    // — the refs are an enhancement, and an error line per capture on older Embedding APIs would be
+    // pure noise.
+    if (!aborted) {
+      const collected = await collectDatasources(sheets, dataSheet, queue, options.datasourceCache);
 
-      if (datasources instanceof CaptureAbortedError) {
-        noteAbort(datasources);
-      } else if (typeof datasources === 'string') {
-        errors.push(datasources);
-      } else if (datasources.length > 0) {
-        payload.datasources = datasources;
+      errors.push(...collected.errors);
+
+      // A partial union is still useful, so it is published before the abort is noted rather than
+      // discarded with it.
+      if (collected.refs.length > 0) {
+        payload.datasources = collected.refs;
         payload.caveats.push(DATASOURCE_QUERY_CAVEAT);
+
+        if (collected.truncated) {
+          payload.datasourcesTruncated = true;
+        }
+      }
+
+      if (collected.aborted !== undefined) {
+        noteAbort(collected.aborted);
       }
     }
 
@@ -407,11 +417,97 @@ export async function captureVizState(options: CaptureOptions): Promise<VizState
   }
 }
 
+/** What a whole-dashboard datasource sweep produced, including how it fell short. */
+type CollectedDatasources = {
+  /** Deduplicated union, capped at `MAX_DATASOURCES_TOTAL`. */
+  refs: DatasourceRef[];
+  /** True when entries were dropped by that cap. */
+  truncated: boolean;
+  /** One line per sheet whose read failed. A failed sheet does not stop the others. */
+  errors: string[];
+  /** Set when the queue aborted mid-sweep. `refs` still holds everything read up to that point. */
+  aborted?: CaptureAbortedError;
+};
+
 /**
- * Reads the sampled sheet's datasource refs, through the shared cache when one is supplied.
+ * Reads the datasources of every on-screen worksheet and merges them into one deduplicated list.
  *
- * Returns the refs on success (possibly empty), an error line on a failed read, or the
- * `CaptureAbortedError` itself when the queue aborted so the caller can stop the pipeline.
+ * Order is deliberate and load-bearing: the sampled sheet's datasources come first (its primary
+ * first of all, per the Embedding API's own ordering), then the remaining sheets in screen order,
+ * each contributing only what has not been seen. The model reads top-down, and the datasource behind
+ * the data it can actually see should be the first thing it reaches. Truncation drops the tail for
+ * the same reason — the least related datasources are the ones that go.
+ *
+ * Deduplication is by `id`, falling back to `name` for a datasource the API named but did not
+ * identify. First entry wins on conflicting fields; only `worksheets` accumulates.
+ */
+async function collectDatasources(
+  sheets: TableauWorksheet[],
+  dataSheet: TableauWorksheet | undefined,
+  queue: SerialQueue,
+  cache: Map<string, DatasourceRef[]> | undefined,
+): Promise<CollectedDatasources> {
+  const ordered =
+    dataSheet === undefined
+      ? sheets
+      : [dataSheet, ...sheets.filter((sheet) => sheet !== dataSheet)];
+
+  const errors: string[] = [];
+  const merged = new Map<string, { ref: DatasourceRef; worksheets: Set<string> }>();
+  let aborted: CaptureAbortedError | undefined;
+
+  for (const sheet of ordered) {
+    const result = await captureDatasources(sheet, queue, cache);
+
+    if (result instanceof CaptureAbortedError) {
+      // Stop sweeping, but keep what the earlier sheets produced.
+      aborted = result;
+      break;
+    }
+
+    if (typeof result === 'string') {
+      errors.push(`datasources unavailable: ${sanitizeString(sheet.name)} (${result})`);
+      continue;
+    }
+
+    const sheetName = sanitizeString(sheet.name);
+
+    for (const ref of result) {
+      const key = ref.id !== undefined ? `id:${ref.id}` : `name:${ref.name}`;
+      const existing = merged.get(key);
+
+      if (existing === undefined) {
+        // Copied, never referenced: these refs may come from the shared cache, and stamping
+        // `worksheets` onto a cached object would leak this capture's sheet list into the next one.
+        merged.set(key, {
+          ref: { ...ref },
+          worksheets: new Set(sheetName === '' ? [] : [sheetName]),
+        });
+      } else if (sheetName !== '') {
+        existing.worksheets.add(sheetName);
+      }
+    }
+  }
+
+  const refs = Array.from(merged.values()).map(({ ref, worksheets }) =>
+    worksheets.size === 0
+      ? ref
+      : { ...ref, worksheets: Array.from(worksheets).sort((a, b) => a.localeCompare(b)) },
+  );
+
+  return {
+    refs: refs.slice(0, MAX_DATASOURCES_TOTAL),
+    truncated: refs.length > MAX_DATASOURCES_TOTAL,
+    errors,
+    aborted,
+  };
+}
+
+/**
+ * Reads one sheet's datasource refs, through the shared cache when one is supplied.
+ *
+ * Returns the refs on success (possibly empty), the failure text on a failed read, or the
+ * `CaptureAbortedError` itself when the queue aborted so the caller can stop the sweep.
  */
 async function captureDatasources(
   sheet: TableauWorksheet,
@@ -457,7 +553,8 @@ async function captureDatasources(
       return error;
     }
 
-    return `datasources unavailable: ${errorText(error)}`;
+    // Bare text: the caller labels it with the sheet it came from.
+    return errorText(error);
   }
 }
 

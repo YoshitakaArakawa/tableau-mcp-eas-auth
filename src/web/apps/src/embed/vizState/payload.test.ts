@@ -223,21 +223,32 @@ describe('fitPayloadToBudget', () => {
   it('keeps the VizQL session with the datasource refs through the identity-only rung', () => {
     // Neither half is usable alone: the id needs the session to resolve, and the session is only a
     // handle for ids. If the refs survive the squeeze, the session has to survive with them.
+    const datasources = [
+      {
+        name: 'Sample - Superstore',
+        id: 'sqlproxy.0abc',
+        isPublished: true,
+        worksheets: ['Sales'],
+      },
+      { name: 'Returns', id: 'federated.0def', isPublished: false, worksheets: ['Returns'] },
+    ];
     const payload = makePayload({
       caveats: ['short'],
       filters: makeFatFilters(20, 60),
-      datasources: [{ name: 'Sample - Superstore', id: 'sqlproxy.0abc', isPublished: true }],
+      datasources,
+      datasourcesTruncated: true,
       vds: { sessionId: 'session-value', globalSessionHeader: 'header-value' },
     });
 
-    const result = fitPayloadToBudget(payload, 700);
+    const result = fitPayloadToBudget(payload, 900);
     const parsed = JSON.parse(result.text) as VizStatePayload;
 
-    expect(result.bytes).toBeLessThanOrEqual(700);
+    expect(result.bytes).toBeLessThanOrEqual(900);
     expect(parsed.filters).toEqual([]);
-    expect(parsed.datasources).toEqual([
-      { name: 'Sample - Superstore', id: 'sqlproxy.0abc', isPublished: true },
-    ]);
+    // The whole multi-sheet union survives, `worksheets` labels included: a ref the model cannot
+    // attribute to a sheet is barely more useful than no ref.
+    expect(parsed.datasources).toEqual(datasources);
+    expect(parsed.datasourcesTruncated).toBe(true);
     expect(parsed.vds).toEqual({ sessionId: 'session-value', globalSessionHeader: 'header-value' });
     expect(parsed.errors).toContain(IDENTITY_ONLY_ERROR);
   });

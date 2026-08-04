@@ -27,8 +27,15 @@ export const MAX_FIELD_ID_LENGTH = 120;
  */
 export const MAX_SESSION_VALUE_LENGTH = 512;
 
-/** Datasources kept per snapshot. The first one is the primary datasource per the Embedding API. */
+/** Datasources kept per WORKSHEET. The first one is that sheet's primary per the Embedding API. */
 export const MAX_DATASOURCES = 3;
+
+/**
+ * Datasources kept per snapshot, across every worksheet on the active sheet. A dashboard can pull
+ * from more sources than any one of its sheets does, but a list longer than this stops being a menu
+ * the model can choose from and starts being noise.
+ */
+export const MAX_DATASOURCES_TOTAL = 8;
 
 /** Filter values kept per filter once the payload has to be squeezed (ladder rung 5). */
 const SQUEEZED_FILTER_VALUES = 5;
@@ -74,8 +81,17 @@ export type FilterSnapshot = {
  *
  * `isPublished: false` means no LUID for this datasource exists at all — the session route is the
  * only way to reach it.
+ *
+ * `worksheets` names every on-screen worksheet that uses this datasource, sorted. On a dashboard the
+ * refs are a union across worksheets, so without it the model cannot tell which sheet a given
+ * datasource is behind — and only one sheet's data was sampled into `data`.
  */
-export type DatasourceRef = { name: string; id?: string; isPublished?: boolean };
+export type DatasourceRef = {
+  name: string;
+  id?: string;
+  isPublished?: boolean;
+  worksheets?: string[];
+};
 
 /**
  * The viz's VizQL session, which is what makes `DatasourceRef.id` resolvable server-side.
@@ -94,8 +110,13 @@ export type VizStatePayload = {
   filters: FilterSnapshot[];
   parameters: Array<{ name: string; value: string }>;
   selection: { marks: string[][]; columns: string[]; truncated: boolean };
-  /** Datasources of the worksheet whose summary data was sampled. First entry is the primary. */
+  /**
+   * Datasources of every on-screen worksheet, deduplicated by id. Ordered so the sampled sheet's
+   * datasources come first (its primary first of all), then the remaining sheets in screen order.
+   */
   datasources?: DatasourceRef[];
+  /** True when the union overflowed `MAX_DATASOURCES_TOTAL` and the tail was dropped. */
+  datasourcesTruncated?: boolean;
   /** VizQL session values that make `datasources[].id` queryable. Only present with `datasources`. */
   vds?: VdsSessionRef;
   data?: {
@@ -129,14 +150,14 @@ export const ACTION_SOURCE_CAVEAT =
 
 /** Attached when datasources were captured, so a model querying them knows the parity limits. */
 export const DATASOURCE_QUERY_CAVEAT =
-  'datasources belong to the sampled worksheet; sheet-level calculated fields, LOD expressions and table calcs may not exist in the datasource, so query results can differ from on-screen aggregates';
+  'datasources cover every on-screen worksheet (see `worksheets` on each), but `data` samples only one of them; sheet-level calculated fields, LOD expressions and table calcs may not exist in the datasource, so query results can differ from on-screen aggregates';
 
 /**
  * Attached when the VizQL session was captured. Says the two things a model gets wrong otherwise:
  * which tool takes these values, and that a query through them is NOT the filtered view on screen.
  */
 export const VDS_SESSION_CAVEAT =
-  'query results reflect the datasource, not the on-screen filter/parameter/selection state; translate `filters` and `parameters` into the query to match the screen';
+  'the same `vds` session values query any datasource listed here, whichever worksheet it belongs to; results reflect the datasource, not the on-screen filter/parameter/selection state, so translate `filters` and `parameters` into the query to match the screen';
 
 export function serializePayload(payload: VizStatePayload): string {
   return JSON.stringify(payload);
@@ -213,6 +234,9 @@ export function fitPayloadToBudget(
       parameters: [],
       selection: { marks: [], columns: [], truncated: true },
       ...(working.datasources !== undefined && { datasources: working.datasources }),
+      ...(working.datasourcesTruncated !== undefined && {
+        datasourcesTruncated: working.datasourcesTruncated,
+      }),
       ...(working.vds !== undefined && { vds: working.vds }),
       caveats: working.caveats,
       errors: [...(working.errors ?? []), IDENTITY_ONLY_ERROR],

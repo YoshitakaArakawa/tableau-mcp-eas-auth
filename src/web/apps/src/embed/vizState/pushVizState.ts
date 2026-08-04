@@ -28,6 +28,8 @@ export const PUSH_PREAMBLE =
   'The `data` rows are a bounded sample, not the full result set. ' +
   'To analyze the full data behind this view, call the query-workbook-datasource tool with `datasources[].id`, `vds.sessionId` and `vds.globalSessionHeader` from this snapshot — ' +
   'all three come from here and must be passed together; call it once without a query to list the fields, then again with a query. ' +
+  '`datasources` covers EVERY worksheet on screen, not only the one sampled into `data`: each entry lists the sheets that use it under `worksheets`, ' +
+  "and the same `vds` values query any of them, so a question about a sheet with no sample rows is answered by picking that sheet's datasource here. " +
   '`datasources[].id` is a workbook-internal id, NOT a LUID: do not pass it to query-datasource, and do not try to look it up by name. ' +
   '(A datasource with `isPublished: true` can alternatively be resolved to a LUID via search-content or list-datasources and queried with query-datasource, which needs no session. One with `isPublished: false` has no LUID and is reachable only through query-workbook-datasource.) ' +
   'Either way the query returns the datasource, not the filtered view — translate `filters`, `parameters` and `selection` into query filters yourself. ' +

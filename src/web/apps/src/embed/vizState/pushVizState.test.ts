@@ -79,6 +79,10 @@ describe('pushVizState', () => {
     expect(preamble).toContain('vds.sessionId');
     expect(preamble).toContain('NOT a LUID');
     expect(preamble).toContain('not the filtered view');
+    // The union is across sheets, so the preamble has to say which field attributes a datasource to
+    // a sheet — otherwise the model assumes every entry belongs to the sampled one.
+    expect(preamble).toContain('EVERY worksheet');
+    expect(preamble).toContain('`worksheets`');
     expect(preamble).toContain('bounded sample');
     expect(preamble).toContain('cross-check');
     expect(preamble).toContain('viewFilters');
@@ -89,8 +93,17 @@ describe('pushVizState', () => {
 
   it('carries the datasource refs and the session that makes them queryable', async () => {
     const app = makeApp();
+    const datasources = [
+      {
+        name: 'Sample Source',
+        id: 'federated.0abc',
+        isPublished: false,
+        worksheets: ['Sales'],
+      },
+      { name: 'Other Sheet Source', id: 'sqlproxy.0def', worksheets: ['Returns', 'Targets'] },
+    ];
     const payload = makePayload({
-      datasources: [{ name: 'Sample Source', id: 'federated.0abc', isPublished: false }],
+      datasources,
       vds: { sessionId: 'session-value', globalSessionHeader: 'header-value' },
     });
 
@@ -99,9 +112,7 @@ describe('pushVizState', () => {
     const [, json] = pushedText(app).split('\n');
     const parsed = JSON.parse(json) as VizStatePayload;
 
-    expect(parsed.datasources).toEqual([
-      { name: 'Sample Source', id: 'federated.0abc', isPublished: false },
-    ]);
+    expect(parsed.datasources).toEqual(datasources);
     expect(parsed.vds).toEqual({
       sessionId: 'session-value',
       globalSessionHeader: 'header-value',
@@ -162,6 +173,45 @@ describe('pushVizState', () => {
     const text = pushedText(app);
     expect(utf8ByteLength(text)).toBeLessThanOrEqual(PUSH_BUDGET_BYTES);
     expect(text).toContain('JSON follows.');
+  });
+
+  it('carries isPublished all the way from the Embedding API into the pushed JSON', async () => {
+    // End-to-end over the real capture path, mirroring the measured dashboard: several worksheets,
+    // one shared published datasource, read through the same shared cache the bridge uses. This is
+    // the whole chain a host-side dump exercises, so a field missing here would be a real defect.
+    const getDataSourcesAsync = vi
+      .fn()
+      .mockResolvedValue([{ name: 'fact_table', id: 'sqlproxy.0abc', isPublished: true }]);
+    const viz = makeFakeVizElement(
+      makeDashboardWorkbook({
+        activeSheet: {
+          name: 'Dash',
+          sheetType: 'dashboard',
+          worksheets: [
+            makeWorksheet({ name: 'A', getDataSourcesAsync }),
+            makeWorksheet({ name: 'B', getDataSourcesAsync }),
+          ],
+        },
+      }),
+    );
+
+    const app = makeApp();
+    const payload = await captureVizState({
+      viz,
+      identity: { workbook: { name: 'WB' }, view: { name: 'V' } },
+      datasourceCache: new Map(),
+    });
+
+    await pushVizState(app, payload);
+
+    const [, json] = pushedText(app).split('\n');
+    const parsed = JSON.parse(json) as VizStatePayload;
+
+    expect(parsed.datasources).toEqual([
+      { name: 'fact_table', id: 'sqlproxy.0abc', isPublished: true, worksheets: ['A', 'B'] },
+    ]);
+    // Asserted on the raw string too: the field has to be literally present in what the host reads.
+    expect(pushedText(app)).toContain('"isPublished":true');
   });
 });
 
