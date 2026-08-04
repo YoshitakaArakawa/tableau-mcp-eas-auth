@@ -424,6 +424,71 @@ describe('handleToolResult', () => {
     expect(vi.mocked(recordEvent)).toHaveBeenCalledWith(mockApp, 'PARSE_ERROR', expect.anything());
   });
 
+  it('restores the viz from structuredContent when the host re-delivers synthesized content (reload)', async () => {
+    // Measured on ChatGPT (20260804): after a page reload the host does not preserve the original
+    // content blocks — it re-delivers content synthesized from the STORED structuredContent. With
+    // the payload mirrored into structuredContent, that delivery must re-render, not PARSE_ERROR.
+    const reloadDelivery: CallToolResult = {
+      content: [{ type: 'text', text: '{}' }],
+      structuredContent: {
+        url: 'https://prod-uswest-c.online.tableau.com/site/mysite/views/workbook/view',
+        data: { luid: 'view-luid-1', objectType: 'view', name: 'My View' },
+      },
+    };
+
+    vi.mocked(callGetEmbedTokenTool).mockResolvedValue('test-token-123');
+    vi.mocked(embedTableauViz).mockImplementation(() => undefined);
+    vi.mocked(setupOpenInTableauLink).mockImplementation(() => {});
+
+    await handleToolResult(mockApp, reloadDelivery);
+    await new Promise((r) => setTimeout(r, 0));
+
+    const container = document.getElementById('tableauVizContainer');
+    expect(container?.querySelector('.mcp-app-error')).toBeNull();
+    expect(vi.mocked(embedTableauViz)).toHaveBeenCalledWith(
+      'https://prod-uswest-c.online.tableau.com/site/mysite/views/workbook/view',
+      'test-token-123',
+      expect.any(Function),
+    );
+  });
+
+  it('restores the viz from structuredContent when content is empty but structuredContent is not', async () => {
+    const structuredOnlyDelivery: CallToolResult = {
+      content: [],
+      structuredContent: {
+        url: 'https://prod-uswest-c.online.tableau.com/site/mysite/views/workbook/view',
+      },
+    };
+
+    vi.mocked(callGetEmbedTokenTool).mockResolvedValue('test-token-123');
+    vi.mocked(embedTableauViz).mockImplementation(() => undefined);
+    vi.mocked(setupOpenInTableauLink).mockImplementation(() => {});
+
+    await handleToolResult(mockApp, structuredOnlyDelivery);
+    await new Promise((r) => setTimeout(r, 0));
+
+    const container = document.getElementById('tableauVizContainer');
+    expect(container?.querySelector('.mcp-app-error')).toBeNull();
+    expect(vi.mocked(embedTableauViz)).toHaveBeenCalledTimes(1);
+  });
+
+  it('still shows PARSE_ERROR when the reload delivery carries an empty structuredContent', async () => {
+    // A chat rendered before structuredContent existed re-delivers `{}` on both channels; the
+    // failure mode stays a PARSE_ERROR with the original content error.
+    const legacyReloadDelivery: CallToolResult = {
+      content: [{ type: 'text', text: '{}' }],
+      structuredContent: {},
+    };
+
+    await handleToolResult(mockApp, legacyReloadDelivery);
+    await new Promise((r) => setTimeout(r, 0));
+
+    const container = document.getElementById('tableauVizContainer');
+    expect(container?.querySelector('.mcp-app-error')).toBeTruthy();
+    expect(vi.mocked(embedTableauViz)).not.toHaveBeenCalled();
+    expect(vi.mocked(recordEvent)).toHaveBeenCalledWith(mockApp, 'PARSE_ERROR', expect.anything());
+  });
+
   it('keeps the mounted viz when an unparseable re-delivery arrives after a render', async () => {
     // Observed on a real device: the host can re-deliver non-render tool results (e.g. a
     // get-view-data CSV fetched during an analysis turn) to the already-mounted widget.

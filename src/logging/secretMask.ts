@@ -43,6 +43,13 @@ export const maskRequest = (config: RequestInterceptorConfig): MaskedRequest => 
       maskedData.headers['Authorization'] = '<redacted>';
     }
 
+    // The VizQL session id sent with a workbook-datasource VDS request is a bearer-like handle to a
+    // live session, so it is masked like any other credential. Its companion
+    // `Global-Session-Header` is base64 node-affinity routing data and is left visible.
+    if (maskedData.headers?.['X-Session-Id']) {
+      maskedData.headers['X-Session-Id'] = '<redacted>';
+    }
+
     if (maskedData.params?.['user_id']) {
       maskedData.params['user_id'] = '<redacted>';
     }

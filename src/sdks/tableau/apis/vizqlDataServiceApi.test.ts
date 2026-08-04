@@ -1,4 +1,55 @@
-import { datasourceModelResponseSchema, fieldSchema, filterSchema } from './vizqlDataServiceApi.js';
+import {
+  datasourceModelResponseSchema,
+  fieldSchema,
+  filterSchema,
+  queryRequestSchema,
+  readMetadataRequestSchema,
+  workbookDatasourceSchema,
+} from './vizqlDataServiceApi.js';
+
+describe('Workbook datasource schema', () => {
+  // Both id shapes were measured on a live site: `sqlproxy.*` when the workbook references a
+  // published datasource, `federated.*` when the datasource is embedded in the workbook.
+  it.each([['sqlproxy.0abcdef1234567890abcdef12'], ['federated.0fedcba9876543210fedcba98']])(
+    'accepts the workbook-internal id %s',
+    (workbookDatasourceId) => {
+      expect(() => workbookDatasourceSchema.parse({ workbookDatasourceId })).not.toThrow();
+    },
+  );
+
+  it('rejects an empty id', () => {
+    expect(() => workbookDatasourceSchema.parse({ workbookDatasourceId: '' })).toThrow();
+  });
+
+  it('accepts either datasource form on the read-metadata request', () => {
+    expect(() =>
+      readMetadataRequestSchema.parse({ datasource: { datasourceLuid: 'some-luid' } }),
+    ).not.toThrow();
+    expect(() =>
+      readMetadataRequestSchema.parse({
+        datasource: { workbookDatasourceId: 'sqlproxy.0abcdef1234567890abcdef12' },
+      }),
+    ).not.toThrow();
+  });
+
+  it('accepts either datasource form on the query request', () => {
+    const query = { fields: [{ fieldCaption: 'Category' }] };
+
+    expect(() =>
+      queryRequestSchema.parse({ datasource: { datasourceLuid: 'some-luid' }, query }),
+    ).not.toThrow();
+    expect(() =>
+      queryRequestSchema.parse({
+        datasource: { workbookDatasourceId: 'federated.0fedcba9876543210fedcba98' },
+        query,
+      }),
+    ).not.toThrow();
+  });
+
+  it('rejects a datasource that names neither form', () => {
+    expect(() => readMetadataRequestSchema.parse({ datasource: {} })).toThrow();
+  });
+});
 
 describe('Field schema', () => {
   it('accepts a minimal valid Field', () => {

@@ -309,6 +309,26 @@ export const datasourceSchema = z.object({
   connections: z.array(connectionSchema).optional(),
 });
 
+/**
+ * A datasource addressed by its workbook-internal id (`sqlproxy.*` for a published datasource
+ * reference, `federated.*` for an embedded one) rather than by a published LUID.
+ *
+ * This is the Embedding API's `DataSource.id`. It only resolves inside a live VizQL session, so a
+ * request carrying it must also carry the `X-Session-Id` / `Global-Session-Header` pair — see
+ * `VizqlDataServiceMethods.queryWorkbookDatasource`. VDS rejects a body that mixes this with
+ * `datasourceLuid` (or with `workbookLuid`), hence a separate schema rather than extra optional
+ * fields on `datasourceSchema`.
+ */
+export const workbookDatasourceSchema = z.object({
+  workbookDatasourceId: z.string().nonempty(),
+});
+
+/**
+ * The two ways a VDS request can name its datasource. Kept as a union on the request schemas (not on
+ * `datasourceSchema`) so existing callers, and the `Datasource` type they use, are unchanged.
+ */
+const requestDatasourceSchema = z.union([datasourceSchema, workbookDatasourceSchema]);
+
 const returnFormatSchema = z.enum(['OBJECTS', 'ARRAYS']);
 
 const queryOptionsSchema = z
@@ -321,7 +341,14 @@ const queryOptionsSchema = z
 
 export const readMetadataRequestSchema = z
   .object({
-    datasource: datasourceSchema,
+    datasource: requestDatasourceSchema,
+    options: queryOptionsSchema.optional(),
+  })
+  .passthrough();
+
+export const readWorkbookDatasourceMetadataRequestSchema = z
+  .object({
+    datasource: workbookDatasourceSchema,
     options: queryOptionsSchema.optional(),
   })
   .passthrough();
@@ -417,7 +444,15 @@ const queryDatasourceOptionsSchema = queryOptionsSchema.and(
 
 export const queryRequestSchema = z
   .object({
-    datasource: datasourceSchema,
+    datasource: requestDatasourceSchema,
+    query: querySchema,
+    options: queryDatasourceOptionsSchema.optional(),
+  })
+  .passthrough();
+
+export const queryWorkbookDatasourceRequestSchema = z
+  .object({
+    datasource: workbookDatasourceSchema,
     query: querySchema,
     options: queryDatasourceOptionsSchema.optional(),
   })
@@ -432,6 +467,7 @@ export const queryOutputSchema = z
 
 // Exported Types
 export type Datasource = z.infer<typeof datasourceSchema>;
+export type WorkbookDatasource = z.infer<typeof workbookDatasourceSchema>;
 export type DataType = z.infer<typeof dataTypeSchema>;
 
 export type Field = z.infer<typeof fieldSchema>;
@@ -451,7 +487,12 @@ export type QueryOutput = z.infer<typeof queryOutputSchema>;
 export type QueryRequest = z.infer<typeof queryRequestSchema>;
 export type QueryParameter = z.infer<typeof queryParameterSchema>;
 
+export type QueryWorkbookDatasourceRequest = z.infer<typeof queryWorkbookDatasourceRequestSchema>;
+
 export type ReadMetadataRequest = z.infer<typeof readMetadataRequestSchema>;
+export type ReadWorkbookDatasourceMetadataRequest = z.infer<
+  typeof readWorkbookDatasourceMetadataRequestSchema
+>;
 export type GetDatasourceModelRequest = z.infer<typeof getDatasourceModelRequestSchema>;
 export type DatasourceModelResponse = z.infer<typeof datasourceModelResponseSchema>;
 

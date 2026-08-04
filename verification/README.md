@@ -17,3 +17,7 @@
   (取得トークンに API スコープが載らず `initialize` が 403 になる件と、その解消条件)
 - [pulse-embed/](pulse-embed/FINDINGS.md) — Pulse メトリック埋め込み(`<tableau-pulse>`)で
   実測確定した事実(`insights:embed` 単独では不足・DOM イベント名・detail 形式)
+- [vds-embedding-id/](vds-embedding-id/FINDINGS.md) — Embedding API で表示中の viz の
+  データソースを VDS でクエリする 2 経路の実機検証(LUID 解決方式とセッション方式。
+  `sqlproxy.*`/`federated.*` 形式・シート単位リネージ解決・名前結合の限界・
+  サーバーサイドからのセッション方式成立とその制約)

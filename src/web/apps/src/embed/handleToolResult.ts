@@ -61,11 +61,24 @@ let disposeBridge: (() => void) | undefined;
  * the first content block of a tool result.
  */
 export function extractRenderPayloadFromResult(result: CallToolResult): RenderPayload {
-  const validated = callToolResultSchema.parse(result);
-  const content = validated.content[0];
+  try {
+    const validated = callToolResultSchema.parse(result);
+    const content = validated.content[0];
 
-  const data = JSON.parse(content.text);
-  return renderPayloadSchema.parse(data);
+    const data = JSON.parse(content.text);
+    return renderPayloadSchema.parse(data);
+  } catch (contentError) {
+    // Hosts do not necessarily preserve `content` across a page reload. ChatGPT re-delivers a
+    // synthesized `content` of `[{text: "{}"}]` built from the STORED structuredContent (measured
+    // 20260804), so structuredContent is the durable half of the result: a delivery whose content
+    // blocks do not parse gets one more chance from it. When both halves fail, the original
+    // content error surfaces — it names what the primary channel actually contained.
+    const structured = renderPayloadSchema.safeParse(result.structuredContent);
+    if (structured.success) {
+      return structured.data;
+    }
+    throw contentError;
+  }
 }
 
 /**
@@ -104,6 +117,23 @@ function isVizMounted(): boolean {
 }
 
 /**
+ * Bounded description of an unparseable delivery, for telemetry. What hosts re-deliver on a
+ * re-mount is undocumented and has only ever been understood from these reports, so the head of
+ * the raw delivery rides along with the parse error. A render delivery carries no secrets (a view
+ * URL plus content identity), and the head is capped well under the record-event message limit.
+ */
+function describeUnparseableDelivery(e: unknown, result: CallToolResult): string {
+  let head: string;
+  try {
+    head = JSON.stringify(result).slice(0, 700);
+  } catch {
+    head = '<unserializable delivery>';
+  }
+  const error = e instanceof Error ? e.message : String(e);
+  return `${error.slice(0, 200)} | delivery head: ${head}`;
+}
+
+/**
  * Handles a tool result from an embed-Tableau-viz tool (get-view / get-workbook) and embeds the viz.
  * @param app - The MCP App instance
  * @param result - The tool result containing the view URL
@@ -132,10 +162,10 @@ export async function handleToolResult(app: App, result: CallToolResult): Promis
   } catch (e) {
     if (isVizMounted()) {
       console.warn('[mcp-app] ignored an unparseable re-delivery; keeping the mounted viz', e);
-      recordEvent(app, 'PARSE_ERROR_IGNORED', e);
+      recordEvent(app, 'PARSE_ERROR_IGNORED', describeUnparseableDelivery(e, result));
       return;
     }
-    showError('PARSE_ERROR', e, app);
+    showError('PARSE_ERROR', describeUnparseableDelivery(e, result), app);
     return;
   }
 

@@ -39,9 +39,13 @@ import {
   type DatasourceRef,
   type FilterSnapshot,
   MAX_DATASOURCES,
+  MAX_DATASOURCES_TOTAL,
   MAX_FIELD_ID_LENGTH,
   MAX_FILTER_VALUES,
   MAX_SELECTED_MARKS,
+  MAX_SESSION_VALUE_LENGTH,
+  VDS_SESSION_CAVEAT,
+  type VdsSessionRef,
   type VizStatePayload,
 } from './payload.js';
 import { sanitizeFiniteNumber, sanitizeString, sanitizeStrings } from './sanitize.js';
@@ -360,20 +364,45 @@ export async function captureVizState(options: CaptureOptions): Promise<VizState
       }
     }
 
-    // --- Datasources (of the sampled sheet) ------------------------------------------------------
-    // Read for the same sheet whose data was sampled: that is the sheet the model would re-query.
-    // A viz without the API stays silent — the refs are an enhancement, and an error line per
-    // capture on older Embedding APIs would be pure noise.
-    if (!aborted && dataSheet !== undefined) {
-      const datasources = await captureDatasources(dataSheet, queue, options.datasourceCache);
+    // --- Datasources (union across every on-screen worksheet) -----------------------------------
+    // Every worksheet is read, not just the sampled one: on a dashboard the interesting datasource
+    // is often behind a sheet whose data did not fit the sample. A viz without the API stays silent
+    // — the refs are an enhancement, and an error line per capture on older Embedding APIs would be
+    // pure noise.
+    if (!aborted) {
+      const collected = await collectDatasources(sheets, dataSheet, queue, options.datasourceCache);
 
-      if (datasources instanceof CaptureAbortedError) {
-        noteAbort(datasources);
-      } else if (typeof datasources === 'string') {
-        errors.push(datasources);
-      } else if (datasources.length > 0) {
-        payload.datasources = datasources;
+      errors.push(...collected.errors);
+
+      // A partial union is still useful, so it is published before the abort is noted rather than
+      // discarded with it.
+      if (collected.refs.length > 0) {
+        payload.datasources = collected.refs;
         payload.caveats.push(DATASOURCE_QUERY_CAVEAT);
+
+        if (collected.truncated) {
+          payload.datasourcesTruncated = true;
+        }
+      }
+
+      if (collected.aborted !== undefined) {
+        noteAbort(collected.aborted);
+      }
+    }
+
+    // --- VizQL session (what makes the datasource ids resolvable server-side) --------------------
+    // Only read when there are datasource refs to pair it with: the session values are useless on
+    // their own, and not reading them is one less thing to carry into the model's context.
+    if (!aborted && payload.datasources !== undefined) {
+      const session = await captureVdsSession(options.viz, queue);
+
+      if (session instanceof CaptureAbortedError) {
+        noteAbort(session);
+      } else if (typeof session === 'string') {
+        errors.push(session);
+      } else if (session !== undefined) {
+        payload.vds = session;
+        payload.caveats.push(VDS_SESSION_CAVEAT);
       }
     }
 
@@ -388,11 +417,97 @@ export async function captureVizState(options: CaptureOptions): Promise<VizState
   }
 }
 
+/** What a whole-dashboard datasource sweep produced, including how it fell short. */
+type CollectedDatasources = {
+  /** Deduplicated union, capped at `MAX_DATASOURCES_TOTAL`. */
+  refs: DatasourceRef[];
+  /** True when entries were dropped by that cap. */
+  truncated: boolean;
+  /** One line per sheet whose read failed. A failed sheet does not stop the others. */
+  errors: string[];
+  /** Set when the queue aborted mid-sweep. `refs` still holds everything read up to that point. */
+  aborted?: CaptureAbortedError;
+};
+
 /**
- * Reads the sampled sheet's datasource refs, through the shared cache when one is supplied.
+ * Reads the datasources of every on-screen worksheet and merges them into one deduplicated list.
  *
- * Returns the refs on success (possibly empty), an error line on a failed read, or the
- * `CaptureAbortedError` itself when the queue aborted so the caller can stop the pipeline.
+ * Order is deliberate and load-bearing: the sampled sheet's datasources come first (its primary
+ * first of all, per the Embedding API's own ordering), then the remaining sheets in screen order,
+ * each contributing only what has not been seen. The model reads top-down, and the datasource behind
+ * the data it can actually see should be the first thing it reaches. Truncation drops the tail for
+ * the same reason — the least related datasources are the ones that go.
+ *
+ * Deduplication is by `id`, falling back to `name` for a datasource the API named but did not
+ * identify. First entry wins on conflicting fields; only `worksheets` accumulates.
+ */
+async function collectDatasources(
+  sheets: TableauWorksheet[],
+  dataSheet: TableauWorksheet | undefined,
+  queue: SerialQueue,
+  cache: Map<string, DatasourceRef[]> | undefined,
+): Promise<CollectedDatasources> {
+  const ordered =
+    dataSheet === undefined
+      ? sheets
+      : [dataSheet, ...sheets.filter((sheet) => sheet !== dataSheet)];
+
+  const errors: string[] = [];
+  const merged = new Map<string, { ref: DatasourceRef; worksheets: Set<string> }>();
+  let aborted: CaptureAbortedError | undefined;
+
+  for (const sheet of ordered) {
+    const result = await captureDatasources(sheet, queue, cache);
+
+    if (result instanceof CaptureAbortedError) {
+      // Stop sweeping, but keep what the earlier sheets produced.
+      aborted = result;
+      break;
+    }
+
+    if (typeof result === 'string') {
+      errors.push(`datasources unavailable: ${sanitizeString(sheet.name)} (${result})`);
+      continue;
+    }
+
+    const sheetName = sanitizeString(sheet.name);
+
+    for (const ref of result) {
+      const key = ref.id !== undefined ? `id:${ref.id}` : `name:${ref.name}`;
+      const existing = merged.get(key);
+
+      if (existing === undefined) {
+        // Copied, never referenced: these refs may come from the shared cache, and stamping
+        // `worksheets` onto a cached object would leak this capture's sheet list into the next one.
+        merged.set(key, {
+          ref: { ...ref },
+          worksheets: new Set(sheetName === '' ? [] : [sheetName]),
+        });
+      } else if (sheetName !== '') {
+        existing.worksheets.add(sheetName);
+      }
+    }
+  }
+
+  const refs = Array.from(merged.values()).map(({ ref, worksheets }) =>
+    worksheets.size === 0
+      ? ref
+      : { ...ref, worksheets: Array.from(worksheets).sort((a, b) => a.localeCompare(b)) },
+  );
+
+  return {
+    refs: refs.slice(0, MAX_DATASOURCES_TOTAL),
+    truncated: refs.length > MAX_DATASOURCES_TOTAL,
+    errors,
+    aborted,
+  };
+}
+
+/**
+ * Reads one sheet's datasource refs, through the shared cache when one is supplied.
+ *
+ * Returns the refs on success (possibly empty), the failure text on a failed read, or the
+ * `CaptureAbortedError` itself when the queue aborted so the caller can stop the sweep.
  */
 async function captureDatasources(
   sheet: TableauWorksheet,
@@ -422,6 +537,11 @@ async function captureDatasources(
         if (source?.id !== undefined) {
           ref.id = sanitizeString(source.id, MAX_FIELD_ID_LENGTH);
         }
+        // Reported only when the API actually answered: `isPublished` decides whether a LUID for
+        // this datasource exists at all, so an invented `false` would be a lie the model acts on.
+        if (typeof source?.isPublished === 'boolean') {
+          ref.isPublished = source.isPublished;
+        }
         return ref;
       })
       .filter((ref) => ref.name !== '' || ref.id !== undefined);
@@ -433,7 +553,55 @@ async function captureDatasources(
       return error;
     }
 
-    return `datasources unavailable: ${errorText(error)}`;
+    // Bare text: the caller labels it with the sheet it came from.
+    return errorText(error);
+  }
+}
+
+export const VDS_SESSION_MISSING_API_ERROR =
+  'datasource querying unavailable: getVizQLDataServiceSessionInfo requires Embedding API 3.16+';
+
+/**
+ * Reads the viz's VizQL session, the second half of what the `query-workbook-datasource` tool needs.
+ *
+ * Returns the pair on success, `undefined` when the viz answered without usable values, an error
+ * line on a failed read, or the `CaptureAbortedError` itself when the queue aborted.
+ *
+ * Not cached across captures. The measured lifetime is long (still valid 26 minutes after the page
+ * closed) but no upper bound was established, so a value is re-read rather than pinned to the first
+ * capture and served stale for the rest of the page's life.
+ */
+async function captureVdsSession(
+  viz: TableauVizElement,
+  queue: SerialQueue,
+): Promise<VdsSessionRef | undefined | string | CaptureAbortedError> {
+  const getSessionInfo = viz.getVizQLDataServiceSessionInfo;
+  if (typeof getSessionInfo !== 'function') {
+    return VDS_SESSION_MISSING_API_ERROR;
+  }
+
+  try {
+    const info = await queue.run('getVizQLDataServiceSessionInfo', async () =>
+      getSessionInfo.call(viz),
+    );
+
+    const sessionId = sanitizeString(info?.vizqlServerSessionId, MAX_SESSION_VALUE_LENGTH);
+    const globalSessionHeader = sanitizeString(info?.globalSessionHeader, MAX_SESSION_VALUE_LENGTH);
+
+    // Both halves or neither: a request carrying only one is rejected by Tableau, so half a pair in
+    // the payload would only invite a call that cannot work.
+    if (sessionId === '' || globalSessionHeader === '') {
+      return undefined;
+    }
+
+    return { sessionId, globalSessionHeader };
+  } catch (error) {
+    if (error instanceof CaptureAbortedError) {
+      return error;
+    }
+
+    // The message is from the Embedding API, not from the session values, so it is safe to report.
+    return `datasource querying unavailable: ${errorText(error)}`;
   }
 }
 

@@ -24,6 +24,7 @@ import { getListPulseMetricsFromMetricDefinitionIdTool } from './pulse/listMetri
 import { getListPulseMetricsFromMetricIdsTool } from './pulse/listMetricsFromMetricIds/listPulseMetricsFromMetricIds.js';
 import { getListPulseMetricSubscriptionsTool } from './pulse/listMetricSubscriptions/listPulseMetricSubscriptions.js';
 import { getQueryDatasourceTool } from './queryDatasource/queryDatasource.js';
+import { getQueryWorkbookDatasourceTool } from './queryWorkbookDatasource/queryWorkbookDatasource.js';
 import { getRecordEventTool } from './recordEvent/recordEvent.js';
 import { getRenderInteractiveVizTool } from './renderInteractiveViz/renderInteractiveViz.js';
 import { getRenderPulseMetricTool } from './renderPulseMetric/renderPulseMetric.js';
@@ -56,6 +57,7 @@ export const webToolFactories = [
   getListUsersTool,
   getUpdateUserTool,
   getQueryDatasourceTool,
+  getQueryWorkbookDatasourceTool,
   getListFlowsTool,
   getGetFlowTool,
   getListFlowRunsTool,

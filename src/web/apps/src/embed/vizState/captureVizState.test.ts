@@ -7,6 +7,7 @@ import {
   type CaptureOptions,
   captureVizState,
   PER_CALL_TIMEOUT_MS,
+  VDS_SESSION_MISSING_API_ERROR,
   type VizIdentity,
 } from './captureVizState.js';
 import type { TableauFilter, TableauWorkbook, TableauWorksheet } from './embeddingApiTypes.js';
@@ -15,9 +16,16 @@ import {
   DASHBOARD_DATA_CAVEAT,
   DATASOURCE_QUERY_CAVEAT,
   type DatasourceRef,
+  MAX_DATASOURCES_TOTAL,
+  MAX_SESSION_VALUE_LENGTH,
+  VDS_SESSION_CAVEAT,
   type VizStatePayload,
 } from './payload.js';
 import {
+  FAKE_FEDERATED_DATASOURCE_ID,
+  FAKE_GLOBAL_SESSION_HEADER,
+  FAKE_SQLPROXY_DATASOURCE_ID,
+  FAKE_VIZQL_SESSION_ID,
   makeCategoricalFilter,
   makeDashboardWorkbook,
   makeFakeVizElement,
@@ -25,6 +33,7 @@ import {
   makeRangeFilter,
   makeRelativeDateFilter,
   makeWorksheet,
+  ON_SCREEN_SHEET_NAME,
 } from './testFakes.js';
 
 const NOW = (): Date => new Date('2026-08-01T00:00:00.000Z');
@@ -614,9 +623,14 @@ describe('captureVizState datasources', () => {
     const payload = await capture(workbook);
 
     expect(payload.datasources).toEqual([
-      { name: 'Sample - Superstore', id: 'ds-primary-id' },
-      { name: 'Secondary Source' },
+      {
+        name: 'Sample - Superstore',
+        id: 'ds-primary-id',
+        worksheets: [ON_SCREEN_SHEET_NAME],
+      },
+      { name: 'Secondary Source', worksheets: [ON_SCREEN_SHEET_NAME] },
     ]);
+    expect(payload.datasourcesTruncated).toBeUndefined();
     expect(payload.caveats).toContain(DATASOURCE_QUERY_CAVEAT);
   });
 
@@ -636,7 +650,11 @@ describe('captureVizState datasources', () => {
     const payload = await capture(workbook);
 
     expect(payload.datasources).toBeUndefined();
-    expect(payload.errors).toEqual(['datasources unavailable: sources exploded']);
+    // The sheet is named in the line: on a dashboard several sheets are read, and an unlabelled
+    // failure would not say which one went missing.
+    expect(payload.errors).toEqual([
+      `datasources unavailable: ${ON_SCREEN_SHEET_NAME} (sources exploded)`,
+    ]);
     expect(payload.data).toBeDefined();
   });
 
@@ -653,9 +671,16 @@ describe('captureVizState datasources', () => {
       datasourceCache: cache,
     });
 
-    expect(first.datasources).toEqual([{ name: 'Sample - Superstore', id: 'ds-primary-id' }]);
+    expect(first.datasources).toEqual([
+      { name: 'Sample - Superstore', id: 'ds-primary-id', worksheets: [ON_SCREEN_SHEET_NAME] },
+    ]);
     expect(second.datasources).toEqual(first.datasources);
     expect(getDataSourcesAsync).toHaveBeenCalledTimes(1);
+    // The cache holds the raw per-sheet refs; the `worksheets` label belongs to the merge step and
+    // must not have been stamped onto the cached objects.
+    expect(cache.get(ON_SCREEN_SHEET_NAME)).toEqual([
+      { name: 'Sample - Superstore', id: 'ds-primary-id' },
+    ]);
   });
 
   it('does not cache a failed datasource read, so the next capture retries', async () => {
@@ -673,11 +698,13 @@ describe('captureVizState datasources', () => {
     });
 
     expect(first.datasources).toBeUndefined();
-    expect(second.datasources).toEqual([{ name: 'Sample - Superstore' }]);
+    expect(second.datasources).toEqual([
+      { name: 'Sample - Superstore', worksheets: [ON_SCREEN_SHEET_NAME] },
+    ]);
     expect(getDataSourcesAsync).toHaveBeenCalledTimes(2);
   });
 
-  it('caps the datasources and drops entries with no usable identity', async () => {
+  it('caps the datasources PER SHEET and drops entries with no usable identity', async () => {
     const workbook = workbookWithFilters([], {
       getDataSourcesAsync: vi
         .fn()
@@ -699,5 +726,329 @@ describe('captureVizState datasources', () => {
 
     expect(emptyPayload.datasources).toBeUndefined();
     expect(emptyPayload.caveats).not.toContain(DATASOURCE_QUERY_CAVEAT);
+  });
+
+  it('reports isPublished only when the datasource actually answered', async () => {
+    const workbook = workbookWithFilters([], {
+      getDataSourcesAsync: vi.fn().mockResolvedValue([
+        // Measured: a published datasource reference reports `sqlproxy.*` with isPublished true.
+        { name: 'Published Source', id: FAKE_SQLPROXY_DATASOURCE_ID, isPublished: true },
+        // Measured: a datasource embedded in the workbook reports `federated.*` and false.
+        { name: 'Embedded Source', id: FAKE_FEDERATED_DATASOURCE_ID, isPublished: false },
+        // Older Embedding API: absent rather than false, and must stay absent.
+        { name: 'Unknown Source', id: 'sqlproxy.0999888777666555444333222' },
+      ]),
+    });
+
+    const payload = await capture(workbook);
+
+    expect(payload.datasources).toEqual([
+      {
+        name: 'Published Source',
+        id: FAKE_SQLPROXY_DATASOURCE_ID,
+        isPublished: true,
+        worksheets: [ON_SCREEN_SHEET_NAME],
+      },
+      {
+        name: 'Embedded Source',
+        id: FAKE_FEDERATED_DATASOURCE_ID,
+        isPublished: false,
+        worksheets: [ON_SCREEN_SHEET_NAME],
+      },
+      {
+        name: 'Unknown Source',
+        id: 'sqlproxy.0999888777666555444333222',
+        worksheets: [ON_SCREEN_SHEET_NAME],
+      },
+    ]);
+  });
+
+  it('keeps isPublished on a cache hit, and out of the cached entry itself', async () => {
+    // The shared cache is the one place a field could quietly go missing between captures: the
+    // second capture never calls the API again, it re-reads whatever the first one stored.
+    const getDataSourcesAsync = vi.fn().mockResolvedValue([
+      { name: 'Published Source', id: FAKE_SQLPROXY_DATASOURCE_ID, isPublished: true },
+      { name: 'Embedded Source', id: FAKE_FEDERATED_DATASOURCE_ID, isPublished: false },
+    ]);
+    const cache = new Map<string, DatasourceRef[]>();
+
+    const first = await capture(workbookWithFilters([], { getDataSourcesAsync }), {
+      datasourceCache: cache,
+    });
+    const second = await capture(workbookWithFilters([], { getDataSourcesAsync }), {
+      datasourceCache: cache,
+    });
+
+    expect(getDataSourcesAsync).toHaveBeenCalledTimes(1);
+    expect(second.datasources).toEqual(first.datasources);
+    expect(second.datasources?.map((ref) => ref.isPublished)).toEqual([true, false]);
+    // The cached entries carry isPublished but NOT worksheets: the label is per-capture, and
+    // stamping it onto the cache would bleed one capture's sheet list into the next.
+    expect(cache.get(ON_SCREEN_SHEET_NAME)).toEqual([
+      { name: 'Published Source', id: FAKE_SQLPROXY_DATASOURCE_ID, isPublished: true },
+      { name: 'Embedded Source', id: FAKE_FEDERATED_DATASOURCE_ID, isPublished: false },
+    ]);
+  });
+});
+
+describe('captureVizState datasources across a dashboard', () => {
+  /** A worksheet that reports the given datasources and is otherwise a normal fake. */
+  function sheetWith(
+    name: string,
+    sources: Array<Record<string, unknown>>,
+    overrides: Partial<TableauWorksheet> = {},
+  ): TableauWorksheet {
+    return makeWorksheet({
+      name,
+      getDataSourcesAsync: vi.fn().mockResolvedValue(sources),
+      ...overrides,
+    });
+  }
+
+  function dashboardOf(worksheets: TableauWorksheet[]): TableauWorkbook {
+    return makeDashboardWorkbook({
+      activeSheet: { name: 'Dash', sheetType: 'dashboard', worksheets },
+    });
+  }
+
+  it('unions the datasources of every worksheet, deduplicated by id', async () => {
+    const shared = { name: 'Shared Source', id: 'sqlproxy.0shared', isPublished: true };
+    const workbook = dashboardOf([
+      sheetWith('Sales', [shared, { name: 'Sales Only', id: 'federated.0sales' }]),
+      sheetWith('Returns', [shared, { name: 'Returns Only', id: 'federated.0returns' }]),
+      sheetWith('Targets', [shared]),
+    ]);
+
+    const payload = await capture(workbook);
+
+    expect(payload.datasources).toEqual([
+      // The sampled sheet ('Sales', the first readable one) leads, primary first.
+      {
+        name: 'Shared Source',
+        id: 'sqlproxy.0shared',
+        isPublished: true,
+        // Sorted, so the label does not depend on which sheet happened to be read first.
+        worksheets: ['Returns', 'Sales', 'Targets'],
+      },
+      { name: 'Sales Only', id: 'federated.0sales', worksheets: ['Sales'] },
+      // Then the remaining sheets in screen order, each contributing only what is new.
+      { name: 'Returns Only', id: 'federated.0returns', worksheets: ['Returns'] },
+    ]);
+    expect(payload.datasourcesTruncated).toBeUndefined();
+  });
+
+  it('leads with the sampled sheet even when it is not the first on screen', async () => {
+    const workbook = dashboardOf([
+      sheetWith('Sales', [{ name: 'Sales Source', id: 'federated.0sales' }]),
+      sheetWith('Returns', [{ name: 'Returns Source', id: 'federated.0returns' }]),
+    ]);
+
+    // The event-driven sheet preference is what picks the sampled sheet, and the datasource order
+    // has to follow it: the model reads top-down and `data` came from this sheet.
+    const payload = await capture(workbook, { preferredSheetName: 'Returns' });
+
+    expect(payload.data?.sheet).toBe('Returns');
+    expect(payload.datasources?.map((ref) => ref.name)).toEqual(['Returns Source', 'Sales Source']);
+  });
+
+  it('deduplicates by name when the API gave no id', async () => {
+    const workbook = dashboardOf([
+      sheetWith('Sales', [{ name: 'Unidentified Source' }]),
+      sheetWith('Returns', [{ name: 'Unidentified Source' }]),
+    ]);
+
+    const payload = await capture(workbook);
+
+    expect(payload.datasources).toEqual([
+      { name: 'Unidentified Source', worksheets: ['Returns', 'Sales'] },
+    ]);
+  });
+
+  it('degrades one unreadable sheet without losing the others', async () => {
+    const workbook = dashboardOf([
+      sheetWith('Sales', [{ name: 'Sales Source', id: 'federated.0sales' }]),
+      sheetWith('Broken', [], {
+        getDataSourcesAsync: vi.fn().mockRejectedValue(new Error('sources exploded')),
+      }),
+      sheetWith('Returns', [{ name: 'Returns Source', id: 'federated.0returns' }]),
+    ]);
+
+    const payload = await capture(workbook);
+
+    expect(payload.datasources?.map((ref) => ref.name)).toEqual(['Sales Source', 'Returns Source']);
+    expect(payload.errors).toEqual(['datasources unavailable: Broken (sources exploded)']);
+  });
+
+  it('caps the union and flags the truncation', async () => {
+    // Three sheets x three datasources each = nine distinct, one over the total cap.
+    const workbook = dashboardOf(
+      ['A', 'B', 'C'].map((sheet) =>
+        sheetWith(
+          `Sheet ${sheet}`,
+          [1, 2, 3].map((index) => ({
+            name: `${sheet}${index}`,
+            id: `federated.0${sheet}${index}`,
+          })),
+        ),
+      ),
+    );
+
+    const payload = await capture(workbook);
+
+    expect(payload.datasources).toHaveLength(MAX_DATASOURCES_TOTAL);
+    expect(payload.datasourcesTruncated).toBe(true);
+    // The tail is what goes: the sampled sheet's datasources are never the ones dropped.
+    expect(payload.datasources?.map((ref) => ref.name)).toEqual([
+      'A1',
+      'A2',
+      'A3',
+      'B1',
+      'B2',
+      'B3',
+      'C1',
+      'C2',
+    ]);
+  });
+
+  it('keeps the partial union when the sweep aborts mid-dashboard', async () => {
+    vi.useFakeTimers();
+
+    try {
+      const workbook = dashboardOf([
+        sheetWith('Sales', [{ name: 'Sales Source', id: 'federated.0sales' }]),
+        sheetWith('Hanging', [], {
+          getDataSourcesAsync: () => new Promise<never>(() => {}),
+        }),
+      ]);
+
+      const pending = capture(workbook);
+      await vi.advanceTimersByTimeAsync(PER_CALL_TIMEOUT_MS);
+      const payload = await pending;
+
+      // Everything read before the wedge survives — discarding it would punish the model for a
+      // failure on a sheet it never asked about.
+      expect(payload.datasources).toEqual([
+        { name: 'Sales Source', id: 'federated.0sales', worksheets: ['Sales'] },
+      ]);
+      expect(payload.errors).toEqual([
+        'capture aborted: call-timeout at getDataSourcesAsync:Hanging',
+      ]);
+      // The session is not read after an abort, so the refs are published without it.
+      expect(payload.vds).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe('captureVizState VizQL session', () => {
+  /** A worksheet whose datasources read succeeds, since the session is only read alongside them. */
+  function workbookWithDatasources(): TableauWorkbook {
+    return workbookWithFilters([], {
+      getDataSourcesAsync: vi
+        .fn()
+        .mockResolvedValue([
+          { name: 'Sample Source', id: FAKE_SQLPROXY_DATASOURCE_ID, isPublished: true },
+        ]),
+    });
+  }
+
+  function captureWithViz(
+    sessionInfo: unknown,
+    workbook: TableauWorkbook = workbookWithDatasources(),
+  ): Promise<VizStatePayload> {
+    const viz = makeFakeVizElement(workbook, {
+      getVizQLDataServiceSessionInfo:
+        sessionInfo === undefined ? undefined : (sessionInfo as never),
+    });
+    return captureVizState({ viz, identity: IDENTITY, now: NOW });
+  }
+
+  it('captures the session alongside the datasources and adds the query caveat', async () => {
+    const payload = await capture(workbookWithDatasources());
+
+    expect(payload.vds).toEqual({
+      sessionId: FAKE_VIZQL_SESSION_ID,
+      globalSessionHeader: FAKE_GLOBAL_SESSION_HEADER,
+    });
+    expect(payload.caveats).toContain(VDS_SESSION_CAVEAT);
+    expect(payload.errors).toBeUndefined();
+  });
+
+  it('does not read the session when there are no datasources to pair it with', async () => {
+    const getVizQLDataServiceSessionInfo = vi.fn().mockResolvedValue({
+      vizqlServerSessionId: FAKE_VIZQL_SESSION_ID,
+      globalSessionHeader: FAKE_GLOBAL_SESSION_HEADER,
+    });
+    const viz = makeFakeVizElement(workbookWithFilters([]), { getVizQLDataServiceSessionInfo });
+
+    const payload = await captureVizState({ viz, identity: IDENTITY, now: NOW });
+
+    expect(payload.datasources).toBeUndefined();
+    expect(payload.vds).toBeUndefined();
+    expect(getVizQLDataServiceSessionInfo).not.toHaveBeenCalled();
+  });
+
+  it('degrades with an error line on an older Embedding API', async () => {
+    const payload = await captureWithViz(undefined);
+
+    expect(payload.vds).toBeUndefined();
+    expect(payload.caveats).not.toContain(VDS_SESSION_CAVEAT);
+    expect(payload.errors).toEqual([VDS_SESSION_MISSING_API_ERROR]);
+    // The rest of the snapshot is unaffected — the session is an enhancement, not a precondition.
+    expect(payload.datasources).toHaveLength(1);
+    expect(payload.data).toBeDefined();
+  });
+
+  it('degrades with an error line when the call rejects', async () => {
+    const payload = await captureWithViz(vi.fn().mockRejectedValue(new Error('session exploded')));
+
+    expect(payload.vds).toBeUndefined();
+    expect(payload.errors).toEqual(['datasource querying unavailable: session exploded']);
+    expect(payload.datasources).toHaveLength(1);
+  });
+
+  it('drops a half-answered session rather than pushing an unusable pair', async () => {
+    // Tableau rejects a request carrying only one of the two headers, so half a pair is worse than
+    // none: it would invite a call that cannot succeed.
+    const onlySessionId = await captureWithViz(
+      vi.fn().mockResolvedValue({ vizqlServerSessionId: FAKE_VIZQL_SESSION_ID }),
+    );
+    const onlyHeader = await captureWithViz(
+      vi.fn().mockResolvedValue({ globalSessionHeader: FAKE_GLOBAL_SESSION_HEADER }),
+    );
+    const nothing = await captureWithViz(vi.fn().mockResolvedValue(undefined));
+
+    for (const payload of [onlySessionId, onlyHeader, nothing]) {
+      expect(payload.vds).toBeUndefined();
+      expect(payload.caveats).not.toContain(VDS_SESSION_CAVEAT);
+      // Not an error: the viz answered, it just had nothing usable to say.
+      expect(payload.errors).toBeUndefined();
+    }
+  });
+
+  it('bounds an oversized session value', async () => {
+    const payload = await captureWithViz(
+      vi.fn().mockResolvedValue({
+        vizqlServerSessionId: 'z'.repeat(MAX_SESSION_VALUE_LENGTH + 500),
+        globalSessionHeader: FAKE_GLOBAL_SESSION_HEADER,
+      }),
+    );
+
+    expect(payload.vds?.sessionId.length).toBeLessThanOrEqual(MAX_SESSION_VALUE_LENGTH + 1);
+  });
+
+  it('accepts a synchronously returned session, not only a promise', async () => {
+    const payload = await captureWithViz(
+      vi.fn().mockReturnValue({
+        vizqlServerSessionId: FAKE_VIZQL_SESSION_ID,
+        globalSessionHeader: FAKE_GLOBAL_SESSION_HEADER,
+      }),
+    );
+
+    expect(payload.vds).toEqual({
+      sessionId: FAKE_VIZQL_SESSION_ID,
+      globalSessionHeader: FAKE_GLOBAL_SESSION_HEADER,
+    });
   });
 });

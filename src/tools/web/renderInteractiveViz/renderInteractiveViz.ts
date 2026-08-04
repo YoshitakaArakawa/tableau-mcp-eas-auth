@@ -134,6 +134,11 @@ export const getRenderInteractiveVizTool = (server: WebMcpServer): WebTool<typeo
             { type: 'text', text: JSON.stringify(result) },
             { type: 'text', text: VIZ_STATE_GUIDANCE },
           ],
+          // The durable copy of the payload. Hosts do not necessarily preserve `content` across a
+          // page reload — ChatGPT re-delivers a synthesized `content` built from the stored
+          // structuredContent (measured 20260804) — so the app's parser falls back to this block
+          // to restore the viz after a reload.
+          structuredContent: result,
         }),
       });
     },
