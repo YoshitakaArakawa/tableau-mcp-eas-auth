@@ -256,10 +256,26 @@ function identityPart(identity: PulseIdentity): { id?: string; name?: string } {
   return part;
 }
 
-/** Field name candidates, in preference order, for a Pulse filter object. */
-const FILTER_FIELD_KEYS = ['field', 'fieldName', 'fieldCaption', '_field'] as const;
-const FILTER_OPERATOR_KEYS = ['operator', 'filterType', '_operator'] as const;
-const FILTER_VALUE_KEYS = ['values', 'appliedValues', 'categoricalValues', '_values'] as const;
+/**
+ * Field name candidates, in preference order, for a Pulse filter object.
+ *
+ * The `_`-prefixed spellings are the own keys the Embedding API actually exposes — measured
+ * 20260804 against Embedding API 3.16.0, where one filter carried `_fieldName` / `_filterType` /
+ * `_appliedValues` / `_isExcludeMode` / `_isAllSelected` as own properties and `appliedValues` /
+ * `isExcludeMode` / `isAllSelected` as prototype getters. They sit last so a future shape that
+ * exposes public names keeps winning.
+ */
+const FILTER_FIELD_KEYS = ['field', 'fieldName', 'fieldCaption', '_field', '_fieldName'] as const;
+const FILTER_OPERATOR_KEYS = ['operator', 'filterType', '_operator', '_filterType'] as const;
+const FILTER_VALUE_KEYS = [
+  'values',
+  'appliedValues',
+  'categoricalValues',
+  '_values',
+  '_appliedValues',
+] as const;
+const FILTER_EXCLUDE_MODE_KEYS = ['isExcludeMode', '_isExcludeMode'] as const;
+const FILTER_ALL_SELECTED_KEYS = ['isAllSelected', '_isAllSelected'] as const;
 
 /**
  * Whitelist projection of one filter. Only recognized keys are copied, and a filter object that
@@ -285,6 +301,20 @@ function serializePulseFilter(filter: unknown): PulseFilterSnapshot {
     snapshot.valuesTruncated = truncated;
   }
 
+  // These two exist so an empty `values` can be read correctly. A Pulse filter at rest reports every
+  // member selected as `isAllSelected: true` with an EMPTY applied-values list, which without this
+  // flag is indistinguishable from "this code could not read the values" — and a model told a
+  // filter has no values will under-claim what the user is actually looking at.
+  const isExcludeMode = firstBoolean(source, FILTER_EXCLUDE_MODE_KEYS);
+  if (isExcludeMode !== undefined) {
+    snapshot.isExcludeMode = isExcludeMode;
+  }
+
+  const isAllSelected = firstBoolean(source, FILTER_ALL_SELECTED_KEYS);
+  if (isAllSelected !== undefined) {
+    snapshot.isAllSelected = isAllSelected;
+  }
+
   if (snapshot.field === '' && snapshot.operator === undefined && snapshot.values === undefined) {
     snapshot.note = 'unrecognized filter shape; no known fields were present';
   }
@@ -299,6 +329,15 @@ const TIME_RANGE_KEYS = ['range', 'timeRange', '_range'] as const;
 
 /** Projects the time dimension, or returns undefined when nothing recognizable was present. */
 function serializeTimeDimension(value: unknown): PulseTimeDimensionSnapshot | undefined {
+  // Measured 20260804: `getTimeDimensionAsync()` resolves to a bare STRING — `'MonthToDate'` — not
+  // to an object. Reading only the object shape dropped the time dimension from every real capture.
+  // The string names the range, so it lands in `range`; field and granularity stay absent because
+  // this shape does not carry them.
+  if (typeof value === 'string') {
+    const range = sanitizeString(value);
+    return range === '' ? undefined : { range };
+  }
+
   if (value === null || typeof value !== 'object') {
     return undefined;
   }
@@ -329,6 +368,21 @@ function firstString(source: Record<string, unknown>, keys: readonly string[]): 
   for (const key of keys) {
     const value = sanitizeString(source[key]);
     if (value !== '') {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+/** First key holding an actual boolean, or undefined. Truthy non-booleans are not coerced. */
+function firstBoolean(
+  source: Record<string, unknown>,
+  keys: readonly string[],
+): boolean | undefined {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === 'boolean') {
       return value;
     }
   }
