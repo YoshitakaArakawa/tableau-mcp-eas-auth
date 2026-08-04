@@ -1,14 +1,16 @@
-# Tableau MCP — EAS auth mode fork
+# Tableau MCP — MCP Apps 強化フォーク
 
 > **これは [tableau/tableau-mcp](https://github.com/tableau/tableau-mcp) の実験的フォークです。**
 > 本家プロダクトの README・ドキュメント・Issue・サポートは upstream と
 > [公式ドキュメント](https://tableau.github.io/tableau-mcp/) を参照してください。
-> This is an experimental fork of tableau/tableau-mcp adding an `AUTH=eas` mode. For the official
-> product, please refer to the upstream repository.
+> This is an experimental fork of tableau/tableau-mcp focused on strengthening its MCP Apps
+> features (embedded viz / Pulse). For the official product, please refer to the upstream
+> repository.
 
-このフォークが upstream に足すものは 3 つ:
+このフォークは tableau-mcp の **MCP Apps 機能(チャット UI 内への Tableau 埋め込み)を強化する**。
+upstream に足すものは 3 つ:
 
-1. **[EAS 認証モード](#eas-認証モード)**(本体) — `AUTH=eas` を追加し、per-user の
+1. **[EAS 認証モード](#eas-認証モード)** — `AUTH=eas` を追加し、per-user の
    埋め込み viz を一般の Tableau Cloud サイトで成立させる
 2. **[Viz 状態スナップショット](#viz-状態スナップショット)** — 埋め込み viz の画面状態を
    モデルコンテキストへ push し、裏のデータソースへの深掘りクエリまでつなぐ
