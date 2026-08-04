@@ -131,6 +131,11 @@ export const getRenderPulseMetricTool = (server: WebMcpServer): WebTool<typeof p
             { type: 'text', text: JSON.stringify(result) },
             { type: 'text', text: PULSE_STATE_GUIDANCE },
           ],
+          // The durable copy of the payload. Hosts do not necessarily preserve `content` across a
+          // page reload — ChatGPT re-delivers a synthesized `content` built from the stored
+          // structuredContent (measured 20260804) — so the app's parser falls back to this block
+          // to restore the metric after a reload.
+          structuredContent: result,
         }),
       });
     },

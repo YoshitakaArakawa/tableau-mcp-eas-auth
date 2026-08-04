@@ -3,6 +3,7 @@ import { Ok } from 'ts-results-es';
 import { z } from 'zod';
 
 import { getFeatureGate } from '../../../features/init.js';
+import { log } from '../../../logging/logger.js';
 import { WebMcpServer } from '../../../server.web.js';
 import { getProductTelemetry } from '../../../telemetry/productTelemetry/telemetryForwarder.js';
 import { Provider } from '../../../utils/provider.js';
@@ -60,6 +61,20 @@ export const getRecordEventTool = (server: WebMcpServer): WebTool<typeof paramsS
         args,
         callback: async () => {
           const { config } = extra;
+
+          // Server-side visibility for app-reported events. The product-telemetry forwarder below
+          // is a no-op unless an external endpoint is configured, and the iframe's console is
+          // unreachable from outside the host — this log line is the only operator-visible trace
+          // of an in-app failure (e.g. what a host actually re-delivered on a reload).
+          log(
+            {
+              level: 'info',
+              logger: 'mcpAppEvent',
+              message: `MCP app event: ${args.event_type}`,
+              ...(args.message !== undefined && { data: { detail: args.message } }),
+            },
+            extra,
+          );
 
           const productTelemetryForwarder = getProductTelemetry(
             config.productTelemetryEndpoint,
