@@ -78,7 +78,9 @@ frameDomains を尊重するホストでは動作する見込み。
 アクティブシートの要約データ(件数上限つき)**をスナップショットにまとめ、ext-apps の
 `updateModelContext` でウィジェットのモデルコンテキストへ push する。これによりモデルは
 「いま画面に出ている数字」を推測や再クエリなしで答えられる。スナップショットに無いカット・
-別シート・打ち切られた行の先は `query-datasource` で公開データソースを引き直す。
+別シート・打ち切られた行の先は、スナップショットが運ぶデータソース参照と VizQL セッション値を
+そのまま `query-workbook-datasource` に渡して引き直す(下記)。published データソースの
+LUID が別途分かっている場合は従来どおり `query-datasource` も使える。
 
 `render-interactive-viz` のツール結果は `content[0]` に従来どおりの生 JSON、`content[1]` に
 この使い分けを説明するガイダンステキストを返す。`content[0]` は iframe が `JSON.parse` するため
@@ -108,8 +110,8 @@ sequenceDiagram
     U->>M: 「いま画面に出ている数字はどう?」
     M-->>U: スナップショットを参照して即答(ツールコール不要)
     U->>M: 「別のカットで深掘りして」
-    M->>S: query-datasource(画面状態をクエリ条件に翻訳)
-    S->>T: VizQL Data Service(ステートレス)
+    M->>S: query-workbook-datasource(スナップショットの<br/>データソース id + セッション値。画面状態はクエリ条件に翻訳)
+    S->>T: VizQL Data Service<br/>(X-Tableau-Auth + セッションヘッダ 2 つ)
     T-->>M: 集計結果
     M-->>U: 画面状態を踏まえた分析
 ```
@@ -146,6 +148,31 @@ sequenceDiagram
 - 保守的に 2.5 文字/トークンで見積もって約 12k トークン。16k に対して約 25% のマージン
 - 予算を超えるペイロードは**送信しない**。データ行を削って収まる形にしてから push する
 - 16,000 という値が実装依存である以上、キャップは**変更可能な定数**として置いてある
+
+### データソースへの深掘り(query-workbook-datasource)
+
+スナップショットには、**表示中のシート/ダッシュボード配下の全ワークシートのデータソース参照**
+(`datasources[]`: 内部 id・名前・`isPublished`・使用シートの `worksheets` ラベル。id で重複排除、
+全体 8 件上限)と、viz の **VizQL セッション値**(`vds`)が載る。`query-workbook-datasource` は
+この 2 つを引数に取り、サーバー側が自前の認証トークン + セッションヘッダで VizQL Data Service を
+呼ぶ。クエリの書式は `query-datasource` と同一。`query` を省略するとフィールド一覧を返す。
+
+要点:
+
+- **LUID 不要**。Embedding API の `DataSource.id`(`sqlproxy.*` / `federated.*`)をそのまま使う。
+  名前解決・Metadata API 往復が要らない
+- **埋め込みデータソース(published でない = LUID が存在しない)にも到達できる**。
+  これはこの経路の固有価値で、`query-datasource` では原理的に不可能
+- セッションは viz 単位で、**ダッシュボード配下のどのシートのデータソースにも同じ値で効く**
+  (実測済み)。ページを閉じても即座には失効しない(26 分後の生存を実測。上限は未測定)
+- **クエリ結果は画面のフィルター状態を反映しない**。スナップショットの `filters` /
+  `parameters` をクエリ条件へ翻訳するのはモデルの責務(push 文言で明示している)
+- サーバー側でセッション ID はログ・通知からマスクされる。データソース許可リスト
+  (`INCLUDE_DATASOURCE_IDS` 等)は LUID 前提のためこのツールには適用されない
+  (該当運用ではツール自体を無効化する)
+
+設計判断と実測の根拠は [worklog](worklog/20260804-query-workbook-datasource.md) と
+[verification/vds-embedding-id/FINDINGS.md](verification/vds-embedding-id/FINDINGS.md) を参照。
 
 ### 想定しているダッシュボード像
 
