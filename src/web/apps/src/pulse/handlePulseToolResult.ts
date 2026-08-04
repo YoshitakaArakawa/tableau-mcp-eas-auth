@@ -153,7 +153,7 @@ export async function handlePulseToolResult(app: App, result: CallToolResult): P
   try {
     token = await callGetEmbedTokenTool(app, 'pulse');
   } catch (e) {
-    showError('AUTH_ERROR', e, app);
+    showError('AUTH_ERROR', `mint failed: ${e instanceof Error ? e.message : String(e)}`, app);
     return;
   }
 
@@ -161,7 +161,7 @@ export async function handlePulseToolResult(app: App, result: CallToolResult): P
     metricUrl,
     token,
     layout: payload.layout,
-    onAuthError: () => showError('AUTH_ERROR', undefined, app),
+    onAuthError: (cause) => showError('AUTH_ERROR', cause, app),
     onLoadError: (message) => showError('EMBED_LOAD_ERROR', message, app),
   });
 

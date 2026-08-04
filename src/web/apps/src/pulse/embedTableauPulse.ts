@@ -20,8 +20,13 @@ export type EmbedPulseOptions = {
   metricUrl: string;
   token: string;
   layout?: PulseLayout;
-  /** Called when the embed session is no longer usable (bad scopes, expired credential). */
-  onAuthError?: () => void;
+  /**
+   * Called when the embed session is no longer usable (bad scopes, expired credential).
+   * `cause` identifies which of the two Pulse auth-failure paths fired (a `pulseerror` with a
+   * 401/403 status, or a `pulseurlchanged` navigation to the session-expired context) — telemetry
+   * has no other way to tell them apart once both surface as the same AUTH_ERROR to the user.
+   */
+  onAuthError?: (cause: string) => void;
   /** Called on a runtime Pulse error that is not an auth failure. */
   onLoadError?: (message: string) => void;
 };
@@ -92,7 +97,7 @@ export function embedTableauPulse(options: EmbedPulseOptions): TableauPulseEleme
     console.error('[mcp-pulse] tableau-pulse reported an error', { status, message });
 
     if (status === 401 || status === 403) {
-      options.onAuthError?.();
+      options.onAuthError?.(`pulseerror status=${status}`);
       return;
     }
 
@@ -104,7 +109,7 @@ export function embedTableauPulse(options: EmbedPulseOptions): TableauPulseEleme
 
     if (detail?._context === PULSE_SESSION_EXPIRED_CONTEXT) {
       console.error('[mcp-pulse] tableau-pulse reported an expired embed session');
-      options.onAuthError?.();
+      options.onAuthError?.('session-expired navigation');
     }
   });
 

@@ -184,12 +184,12 @@ export async function handleToolResult(app: App, result: CallToolResult): Promis
   try {
     token = await callGetEmbedTokenTool(app);
   } catch (e) {
-    showError('AUTH_ERROR', e, app);
+    showError('AUTH_ERROR', `mint failed: ${e instanceof Error ? e.message : String(e)}`, app);
     return;
   }
 
   // Auth failure (runtime) - handled by onError callback
-  const viz = embedTableauViz(viewUrl, token, () => showError('AUTH_ERROR', undefined, app));
+  const viz = embedTableauViz(viewUrl, token, (cause) => showError('AUTH_ERROR', cause, app));
 
   // The host can re-deliver a tool result on re-mount, and `embedTableauViz` replaces the
   // container's children — the previous element is orphaned along with its listeners, so the

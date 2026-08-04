@@ -157,6 +157,22 @@ describe('handlePulseToolResult', () => {
 
     expect(errorUiPresent()).toBe(true);
     expect(embedTableauPulse).not.toHaveBeenCalled();
+    // The cause distinguishes a minting failure from the two runtime auth-error paths below,
+    // so AUTH_ERROR reports can be diagnosed instead of just recording "something failed".
+    expect(recordEvent).toHaveBeenCalledWith(app, 'AUTH_ERROR', 'mint failed: not available');
+  });
+
+  it('records the runtime auth-error cause reported by embedTableauPulse', async () => {
+    vi.mocked(embedTableauPulse).mockImplementation((options) => {
+      const element = document.createElement('tableau-pulse');
+      document.getElementById('tableauVizContainer')?.replaceChildren(element);
+      options.onAuthError?.('pulseerror status=401');
+      return element;
+    });
+
+    await handlePulseToolResult(app, makeResult(fullPayload()));
+
+    expect(recordEvent).toHaveBeenCalledWith(app, 'AUTH_ERROR', 'pulseerror status=401');
   });
 
   it('shows the error UI for an unparseable first delivery', async () => {
