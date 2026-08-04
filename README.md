@@ -6,14 +6,27 @@
 > This is an experimental fork of tableau/tableau-mcp adding an `AUTH=eas` mode. For the official
 > product, please refer to the upstream repository.
 
-このフォークは認証モード **`AUTH=eas`(Connected App / OAuth 2.0 Trust = 外部認可サーバー)** を
-追加する。MCP サーバー自身を Tableau サイトに EAS として登録し、サーバーが保持する RS256 鍵で
+このフォークが upstream に足すものは 3 つ:
+
+1. **[EAS 認証モード](#eas-認証モード)**(本体) — `AUTH=eas` を追加し、per-user の
+   埋め込み viz を一般の Tableau Cloud サイトで成立させる
+2. **[Viz 状態スナップショット](#viz-状態スナップショット)** — 埋め込み viz の画面状態を
+   モデルコンテキストへ push し、裏のデータソースへの深掘りクエリまでつなぐ
+3. **[Pulse メトリックの埋め込み](#pulse-メトリックの埋め込み)** — `<tableau-pulse>` の
+   iframe 描画と状態 push
+
+---
+
+## EAS 認証モード
+
+認証モード **`AUTH=eas`(Connected App / OAuth 2.0 Trust = 外部認可サーバー)** を追加する。
+MCP サーバー自身を Tableau サイトに EAS として登録し、サーバーが保持する RS256 鍵で
 REST サインイン用 JWT と埋め込み用 JWT の両方を署名する。ゴールは、ユーザー体験を
 「OAuth リダイレクトで Tableau にログインし、サイトを選ぶだけ」に保ったまま、MCP Apps の
 per-user 埋め込み viz を成立させること。設定方法と環境変数は
 [docs/.../authentication/eas.md](docs/docs/configuration/mcp-config/authentication/eas.md) を参照。
 
-## 背景 — なぜ EAS モードが必要か
+### 背景 — なぜ EAS モードが必要か
 
 tableau-mcp の MCP Apps 機能は、チャット UI 内の iframe に Tableau viz を埋め込み表示できる
 (`render-interactive-viz` / `get-embed-token`)。この埋め込みには Embedding API v3 用の JWT が
@@ -29,7 +42,7 @@ per-user かつ一般の Tableau Cloud サイトで使える署名方式が存�
 実装した理由である。EAS はサーバー内部への「署名器」の追加であり、既存の OAuth ログイン層
 (`src/server/oauth/`)には一切手を入れていない。
 
-## Tableau Cloud で実測して確定した仕様
+### Tableau Cloud で実測して確定した仕様
 
 公式ドキュメントに無い・矛盾している挙動。2026年8月時点、Tableau Cloud サンドボックスでの実測:
 
@@ -46,7 +59,7 @@ per-user かつ一般の Tableau Cloud サイトで使える署名方式が存�
 5. REST サインインも Embedding API v3 も EAS 署名 JWT を受理する(embed は scp
    `["tableau:views:embed"]`)
 
-## デプロイ構成の注意(Tableau Cloud)
+### デプロイ構成の注意(Tableau Cloud)
 
 - **issuer は Tableau Cloud から到達可能な公開 HTTPS URL であること**。Tableau 側がメタデータと
   JWKS を能動的に fetch しに来るため localhost 不可。ローカル検証には HTTPS トンネルか
@@ -61,7 +74,7 @@ per-user かつ一般の Tableau Cloud サイトで使える署名方式が存�
   (claude.ai のカスタムコネクタ等)を使う
 - サーバーの配置リージョンは Tableau ポッドの近傍を推奨(JWKS fetch のレイテンシ対策)
 
-## 既知の制約(サーバー外、2026年8月時点)
+### 既知の制約 — ホスト側 CSP(サーバー外、2026年8月時点)
 
 Claude Desktop / claude.ai では、MCP Apps 内の viz 表示だけが
 「Authentication was unsuccessful」で失敗する。これはサーバー側の問題ではない。
@@ -72,7 +85,9 @@ Claude Desktop / claude.ai では、MCP Apps 内の viz 表示だけが
 ([anthropics/claude-ai-mcp#40](https://github.com/anthropics/claude-ai-mcp/issues/40))。
 frameDomains を尊重するホストでは動作する見込み。
 
-## Viz 状態スナップショット(このフォークの追加機能)
+---
+
+## Viz 状態スナップショット
 
 埋め込み viz をユーザーが操作すると、iframe 側が**現在のフィルター・パラメーター・選択マーク・
 アクティブシートの要約データ(件数上限つき)**をスナップショットにまとめ、ext-apps の
@@ -187,7 +202,9 @@ Embedding API / VDS の制約は [AI-DASHBOARD-NOTES.md](AI-DASHBOARD-NOTES.md) 
 事実は [verification/viz-state/ACCEPTANCE.md](verification/viz-state/ACCEPTANCE.md) に
 記録してある。
 
-## Pulse メトリックの埋め込み(このフォークの追加機能)
+---
+
+## Pulse メトリックの埋め込み
 
 `render-pulse-metric` は Tableau Pulse メトリックを `<tableau-pulse>` として iframe に描画する。
 viz 側(`render-interactive-viz` + `embed-viz` バンドル)と対称の構成で、専用の単一ファイル HTML
@@ -208,6 +225,8 @@ viz と同じく `updateModelContext` でモデルコンテキストへ push す
 
 このため `get-embed-token` は任意パラメータ `target`(`viz` / `pulse`)を取る。省略時は従来どおり
 `views:embed` 単独で署名するため、viz 経路の挙動は変わらない。
+
+---
 
 ## Tableau Server への読み替え
 
