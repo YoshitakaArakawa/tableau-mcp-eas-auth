@@ -165,6 +165,30 @@ describe('handlePulseToolResult', () => {
     expect(errorUiPresent()).toBe(true);
   });
 
+  it('restores the metric from structuredContent when the host re-delivers synthesized content (reload)', async () => {
+    // Measured on ChatGPT (20260804, viz app): after a page reload the host re-delivers content
+    // synthesized from the STORED structuredContent, not the original content blocks.
+    await handlePulseToolResult(app, {
+      content: [{ type: 'text', text: '{}' }],
+      structuredContent: fullPayload(),
+    });
+
+    expect(embedTableauPulse).toHaveBeenCalledWith(
+      expect.objectContaining({ metricUrl: METRIC_URL, layout: 'card' }),
+    );
+    expect(errorUiPresent()).toBe(false);
+  });
+
+  it('still shows the error UI when the reload delivery carries an empty structuredContent', async () => {
+    await handlePulseToolResult(app, {
+      content: [{ type: 'text', text: '{}' }],
+      structuredContent: {},
+    });
+
+    expect(embedTableauPulse).not.toHaveBeenCalled();
+    expect(errorUiPresent()).toBe(true);
+  });
+
   it('keeps the mounted metric on an unparseable re-delivery', async () => {
     await handlePulseToolResult(app, makeResult(fullPayload()));
     await handlePulseToolResult(app, { content: [{ type: 'text', text: 'not json' }] });

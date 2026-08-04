@@ -61,11 +61,24 @@ let disposeBridge: (() => void) | undefined;
  * the first content block of a tool result.
  */
 export function extractRenderPayloadFromResult(result: CallToolResult): RenderPayload {
-  const validated = callToolResultSchema.parse(result);
-  const content = validated.content[0];
+  try {
+    const validated = callToolResultSchema.parse(result);
+    const content = validated.content[0];
 
-  const data = JSON.parse(content.text);
-  return renderPayloadSchema.parse(data);
+    const data = JSON.parse(content.text);
+    return renderPayloadSchema.parse(data);
+  } catch (contentError) {
+    // Hosts do not necessarily preserve `content` across a page reload. ChatGPT re-delivers a
+    // synthesized `content` of `[{text: "{}"}]` built from the STORED structuredContent (measured
+    // 20260804), so structuredContent is the durable half of the result: a delivery whose content
+    // blocks do not parse gets one more chance from it. When both halves fail, the original
+    // content error surfaces — it names what the primary channel actually contained.
+    const structured = renderPayloadSchema.safeParse(result.structuredContent);
+    if (structured.success) {
+      return structured.data;
+    }
+    throw contentError;
+  }
 }
 
 /**

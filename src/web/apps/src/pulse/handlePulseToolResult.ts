@@ -57,11 +57,23 @@ let disposeBridge: (() => void) | undefined;
 
 /** Extracts the render payload from the first content block of a tool result. */
 export function extractPulsePayloadFromResult(result: CallToolResult): PulsePayload {
-  const validated = callToolResultSchema.parse(result);
-  const content = validated.content[0];
+  try {
+    const validated = callToolResultSchema.parse(result);
+    const content = validated.content[0];
 
-  const data = JSON.parse(content.text);
-  return pulsePayloadSchema.parse(data);
+    const data = JSON.parse(content.text);
+    return pulsePayloadSchema.parse(data);
+  } catch (contentError) {
+    // Hosts do not necessarily preserve `content` across a page reload. ChatGPT re-delivers a
+    // synthesized `content` of `[{text: "{}"}]` built from the STORED structuredContent (measured
+    // 20260804 on the viz app), so structuredContent is the durable half of the result: a delivery
+    // whose content blocks do not parse gets one more chance from it.
+    const structured = pulsePayloadSchema.safeParse(result.structuredContent);
+    if (structured.success) {
+      return structured.data;
+    }
+    throw contentError;
+  }
 }
 
 /** Maps the server's content identity onto the capture identity. */
