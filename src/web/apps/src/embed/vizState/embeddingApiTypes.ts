@@ -61,11 +61,30 @@ export type TableauDataTableReader = {
 export type GetSummaryDataOptions = { ignoreSelection?: boolean };
 
 /**
- * A worksheet's datasource. Doc-sourced rather than phase-0 observed: the reference describes `id`
- * only as "a unique string representing the data source" — whether it equals the published
- * datasource LUID is undocumented and pending runtime verification.
+ * A worksheet's datasource.
+ *
+ * Measured (see verification/vds-embedding-id/FINDINGS.md): `id` is NOT the published datasource
+ * LUID. It is the workbook-internal connection id — `sqlproxy.<id>` when the workbook references a
+ * published datasource, `federated.<id>` when the datasource is embedded in the workbook. Passing it
+ * to VDS as `datasourceLuid` is rejected outright; it is only usable as `workbookDatasourceId`,
+ * inside the viz's VizQL session.
+ *
+ * `isPublished` (Embedding API 2021.4+) is what tells the two apart, and therefore whether a LUID
+ * for this datasource exists anywhere at all.
  */
-export type TableauDataSource = { name?: string; id?: string };
+export type TableauDataSource = { name?: string; id?: string; isPublished?: boolean };
+
+/**
+ * The VizQL session that a `workbookDatasourceId` resolves inside of, as returned by
+ * `viz.getVizQLDataServiceSessionInfo()` (Embedding API 3.16+).
+ *
+ * `vizqlServerSessionId` is the secret half. `globalSessionHeader` is base64-encoded node-affinity
+ * routing information — required by Tableau Cloud, but not a credential.
+ */
+export type VizqlDataServiceSessionInfo = {
+  vizqlServerSessionId?: string;
+  globalSessionHeader?: string;
+};
 
 export type TableauMarksCollection = { data?: TableauDataTable[] };
 
@@ -111,7 +130,17 @@ export type TableauWorkbook = {
 };
 
 /** The `<tableau-viz>` custom element once the Embedding API has upgraded it. */
-export type TableauVizElement = HTMLElement & { workbook?: TableauWorkbook };
+export type TableauVizElement = HTMLElement & {
+  workbook?: TableauWorkbook;
+  /**
+   * Measured: this lives on the viz ELEMENT, not on the workbook object. The return type is written
+   * as "value or promise" because the measurement awaited the result and therefore could not tell
+   * the two apart; callers must await it.
+   */
+  getVizQLDataServiceSessionInfo?: () =>
+    | VizqlDataServiceSessionInfo
+    | Promise<VizqlDataServiceSessionInfo>;
+};
 
 /**
  * Events subscribed on the `<tableau-viz>` element. 'summarydatachanged' is a backstop:

@@ -73,12 +73,39 @@ describe('pushVizState', () => {
     // The guidance must name the current-view framing and the fallback query route.
     expect(preamble).toContain('what the user currently sees');
     expect(preamble).toContain('query-datasource');
+    // The session route, and the two mistakes it invites: wrong tool for the id, and reading the
+    // result as the filtered view.
+    expect(preamble).toContain('query-workbook-datasource');
+    expect(preamble).toContain('vds.sessionId');
+    expect(preamble).toContain('NOT a LUID');
+    expect(preamble).toContain('not the filtered view');
     expect(preamble).toContain('bounded sample');
     expect(preamble).toContain('cross-check');
     expect(preamble).toContain('viewFilters');
     // The leak test rejects any pushed text matching /token/i; the preamble must satisfy it too.
     expect(preamble).not.toMatch(/token/i);
     expect(JSON.parse(json)).toEqual(payload);
+  });
+
+  it('carries the datasource refs and the session that makes them queryable', async () => {
+    const app = makeApp();
+    const payload = makePayload({
+      datasources: [{ name: 'Sample Source', id: 'federated.0abc', isPublished: false }],
+      vds: { sessionId: 'session-value', globalSessionHeader: 'header-value' },
+    });
+
+    await pushVizState(app, payload);
+
+    const [, json] = pushedText(app).split('\n');
+    const parsed = JSON.parse(json) as VizStatePayload;
+
+    expect(parsed.datasources).toEqual([
+      { name: 'Sample Source', id: 'federated.0abc', isPublished: false },
+    ]);
+    expect(parsed.vds).toEqual({
+      sessionId: 'session-value',
+      globalSessionHeader: 'header-value',
+    });
   });
 
   it('does not push when the host does not accept context updates', async () => {

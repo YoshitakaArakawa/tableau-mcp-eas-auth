@@ -20,6 +20,13 @@ export const MAX_FILTER_VALUES = 50;
 export const MAX_SELECTED_MARKS = 100;
 export const MAX_FIELD_ID_LENGTH = 120;
 
+/**
+ * Cap on a single VizQL session value. Generous next to the measured sizes, but a bound is needed:
+ * these values are read from the viz and forwarded verbatim, and an unbounded one could eat the
+ * whole push budget on its own.
+ */
+export const MAX_SESSION_VALUE_LENGTH = 512;
+
 /** Datasources kept per snapshot. The first one is the primary datasource per the Embedding API. */
 export const MAX_DATASOURCES = 3;
 
@@ -58,11 +65,26 @@ export type FilterSnapshot = {
 };
 
 /**
- * A datasource of the sampled worksheet. `id` is the Embedding API's DataSource.id — documented
- * only as "a unique string"; whether it equals the published datasource LUID is unverified, which
- * is why the push guidance tells the model to resolve by name when the id does not match anything.
+ * A datasource of the sampled worksheet.
+ *
+ * `id` is the Embedding API's DataSource.id, measured to be the workbook-internal connection id
+ * (`sqlproxy.*` for a published datasource the workbook references, `federated.*` for one embedded
+ * in the workbook) rather than a published LUID. It is queryable through the
+ * `query-workbook-datasource` tool together with the `vds` session values below.
+ *
+ * `isPublished: false` means no LUID for this datasource exists at all — the session route is the
+ * only way to reach it.
  */
-export type DatasourceRef = { name: string; id?: string };
+export type DatasourceRef = { name: string; id?: string; isPublished?: boolean };
+
+/**
+ * The viz's VizQL session, which is what makes `DatasourceRef.id` resolvable server-side.
+ *
+ * Both values are needed together; either one alone is rejected. `sessionId` is a handle, not a
+ * credential upgrade — measured, a caller's own token still governs what it can read — but it is
+ * treated as a secret in logs all the same.
+ */
+export type VdsSessionRef = { sessionId: string; globalSessionHeader: string };
 
 export type VizStatePayload = {
   capturedAt: string;
@@ -74,6 +96,8 @@ export type VizStatePayload = {
   selection: { marks: string[][]; columns: string[]; truncated: boolean };
   /** Datasources of the worksheet whose summary data was sampled. First entry is the primary. */
   datasources?: DatasourceRef[];
+  /** VizQL session values that make `datasources[].id` queryable. Only present with `datasources`. */
+  vds?: VdsSessionRef;
   data?: {
     sheet: string;
     columns: string[];
@@ -106,6 +130,13 @@ export const ACTION_SOURCE_CAVEAT =
 /** Attached when datasources were captured, so a model querying them knows the parity limits. */
 export const DATASOURCE_QUERY_CAVEAT =
   'datasources belong to the sampled worksheet; sheet-level calculated fields, LOD expressions and table calcs may not exist in the datasource, so query results can differ from on-screen aggregates';
+
+/**
+ * Attached when the VizQL session was captured. Says the two things a model gets wrong otherwise:
+ * which tool takes these values, and that a query through them is NOT the filtered view on screen.
+ */
+export const VDS_SESSION_CAVEAT =
+  'query results reflect the datasource, not the on-screen filter/parameter/selection state; translate `filters` and `parameters` into the query to match the screen';
 
 export function serializePayload(payload: VizStatePayload): string {
   return JSON.stringify(payload);
@@ -167,9 +198,11 @@ export function fitPayloadToBudget(
     measure();
   }
 
-  // Rung 6: identity only. What was captured, and why nothing else is here. The datasource refs
-  // survive when present: they are a couple hundred bytes, and they matter most exactly here —
-  // when the data did not fit, the model's only route to it is querying the datasource.
+  // Rung 6: identity only. What was captured, and why nothing else is here. The datasource refs and
+  // the session that makes them queryable survive when present: together they are a few hundred
+  // bytes, and they matter most exactly here — when the data did not fit, querying the datasource is
+  // the model's only route to it. Splitting them would be worse than dropping both, since neither
+  // half is usable alone.
   if (bytes > budgetBytes) {
     const identity: VizStatePayload = {
       capturedAt: working.capturedAt,
@@ -180,6 +213,7 @@ export function fitPayloadToBudget(
       parameters: [],
       selection: { marks: [], columns: [], truncated: true },
       ...(working.datasources !== undefined && { datasources: working.datasources }),
+      ...(working.vds !== undefined && { vds: working.vds }),
       caveats: working.caveats,
       errors: [...(working.errors ?? []), IDENTITY_ONLY_ERROR],
     };

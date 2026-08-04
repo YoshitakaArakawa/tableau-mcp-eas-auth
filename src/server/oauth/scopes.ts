@@ -222,6 +222,13 @@ const toolScopeMap: Record<
     mcp: ['tableau:mcp:datasource:read'],
     api: new Set(['tableau:viz_data_service:read', ...RESOURCE_ACCESS_CHECKER_REQUIRED_API_SCOPES]),
   },
+  // Queries a workbook-internal datasource through a live VizQL session. No content:read here: the
+  // tool never resolves a published datasource by LUID, so the resourceAccessChecker scopes it would
+  // need are not part of this path (see the tool's comment on the skipped allowlist check).
+  'query-workbook-datasource': {
+    mcp: ['tableau:mcp:datasource:read'],
+    api: new Set(['tableau:viz_data_service:read', 'tableau:mcp_site_settings:read']),
+  },
   'get-datasource-metadata': {
     mcp: ['tableau:mcp:datasource:read'],
     api: new Set([

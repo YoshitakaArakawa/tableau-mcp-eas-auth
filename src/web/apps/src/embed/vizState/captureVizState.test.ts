@@ -7,6 +7,7 @@ import {
   type CaptureOptions,
   captureVizState,
   PER_CALL_TIMEOUT_MS,
+  VDS_SESSION_MISSING_API_ERROR,
   type VizIdentity,
 } from './captureVizState.js';
 import type { TableauFilter, TableauWorkbook, TableauWorksheet } from './embeddingApiTypes.js';
@@ -15,9 +16,15 @@ import {
   DASHBOARD_DATA_CAVEAT,
   DATASOURCE_QUERY_CAVEAT,
   type DatasourceRef,
+  MAX_SESSION_VALUE_LENGTH,
+  VDS_SESSION_CAVEAT,
   type VizStatePayload,
 } from './payload.js';
 import {
+  FAKE_FEDERATED_DATASOURCE_ID,
+  FAKE_GLOBAL_SESSION_HEADER,
+  FAKE_SQLPROXY_DATASOURCE_ID,
+  FAKE_VIZQL_SESSION_ID,
   makeCategoricalFilter,
   makeDashboardWorkbook,
   makeFakeVizElement,
@@ -699,5 +706,138 @@ describe('captureVizState datasources', () => {
 
     expect(emptyPayload.datasources).toBeUndefined();
     expect(emptyPayload.caveats).not.toContain(DATASOURCE_QUERY_CAVEAT);
+  });
+
+  it('reports isPublished only when the datasource actually answered', async () => {
+    const workbook = workbookWithFilters([], {
+      getDataSourcesAsync: vi.fn().mockResolvedValue([
+        // Measured: a published datasource reference reports `sqlproxy.*` with isPublished true.
+        { name: 'Published Source', id: FAKE_SQLPROXY_DATASOURCE_ID, isPublished: true },
+        // Measured: a datasource embedded in the workbook reports `federated.*` and false.
+        { name: 'Embedded Source', id: FAKE_FEDERATED_DATASOURCE_ID, isPublished: false },
+        // Older Embedding API: absent rather than false, and must stay absent.
+        { name: 'Unknown Source', id: 'sqlproxy.0999888777666555444333222' },
+      ]),
+    });
+
+    const payload = await capture(workbook);
+
+    expect(payload.datasources).toEqual([
+      { name: 'Published Source', id: FAKE_SQLPROXY_DATASOURCE_ID, isPublished: true },
+      { name: 'Embedded Source', id: FAKE_FEDERATED_DATASOURCE_ID, isPublished: false },
+      { name: 'Unknown Source', id: 'sqlproxy.0999888777666555444333222' },
+    ]);
+  });
+});
+
+describe('captureVizState VizQL session', () => {
+  /** A worksheet whose datasources read succeeds, since the session is only read alongside them. */
+  function workbookWithDatasources(): TableauWorkbook {
+    return workbookWithFilters([], {
+      getDataSourcesAsync: vi
+        .fn()
+        .mockResolvedValue([
+          { name: 'Sample Source', id: FAKE_SQLPROXY_DATASOURCE_ID, isPublished: true },
+        ]),
+    });
+  }
+
+  function captureWithViz(
+    sessionInfo: unknown,
+    workbook: TableauWorkbook = workbookWithDatasources(),
+  ): Promise<VizStatePayload> {
+    const viz = makeFakeVizElement(workbook, {
+      getVizQLDataServiceSessionInfo:
+        sessionInfo === undefined ? undefined : (sessionInfo as never),
+    });
+    return captureVizState({ viz, identity: IDENTITY, now: NOW });
+  }
+
+  it('captures the session alongside the datasources and adds the query caveat', async () => {
+    const payload = await capture(workbookWithDatasources());
+
+    expect(payload.vds).toEqual({
+      sessionId: FAKE_VIZQL_SESSION_ID,
+      globalSessionHeader: FAKE_GLOBAL_SESSION_HEADER,
+    });
+    expect(payload.caveats).toContain(VDS_SESSION_CAVEAT);
+    expect(payload.errors).toBeUndefined();
+  });
+
+  it('does not read the session when there are no datasources to pair it with', async () => {
+    const getVizQLDataServiceSessionInfo = vi.fn().mockResolvedValue({
+      vizqlServerSessionId: FAKE_VIZQL_SESSION_ID,
+      globalSessionHeader: FAKE_GLOBAL_SESSION_HEADER,
+    });
+    const viz = makeFakeVizElement(workbookWithFilters([]), { getVizQLDataServiceSessionInfo });
+
+    const payload = await captureVizState({ viz, identity: IDENTITY, now: NOW });
+
+    expect(payload.datasources).toBeUndefined();
+    expect(payload.vds).toBeUndefined();
+    expect(getVizQLDataServiceSessionInfo).not.toHaveBeenCalled();
+  });
+
+  it('degrades with an error line on an older Embedding API', async () => {
+    const payload = await captureWithViz(undefined);
+
+    expect(payload.vds).toBeUndefined();
+    expect(payload.caveats).not.toContain(VDS_SESSION_CAVEAT);
+    expect(payload.errors).toEqual([VDS_SESSION_MISSING_API_ERROR]);
+    // The rest of the snapshot is unaffected — the session is an enhancement, not a precondition.
+    expect(payload.datasources).toHaveLength(1);
+    expect(payload.data).toBeDefined();
+  });
+
+  it('degrades with an error line when the call rejects', async () => {
+    const payload = await captureWithViz(vi.fn().mockRejectedValue(new Error('session exploded')));
+
+    expect(payload.vds).toBeUndefined();
+    expect(payload.errors).toEqual(['datasource querying unavailable: session exploded']);
+    expect(payload.datasources).toHaveLength(1);
+  });
+
+  it('drops a half-answered session rather than pushing an unusable pair', async () => {
+    // Tableau rejects a request carrying only one of the two headers, so half a pair is worse than
+    // none: it would invite a call that cannot succeed.
+    const onlySessionId = await captureWithViz(
+      vi.fn().mockResolvedValue({ vizqlServerSessionId: FAKE_VIZQL_SESSION_ID }),
+    );
+    const onlyHeader = await captureWithViz(
+      vi.fn().mockResolvedValue({ globalSessionHeader: FAKE_GLOBAL_SESSION_HEADER }),
+    );
+    const nothing = await captureWithViz(vi.fn().mockResolvedValue(undefined));
+
+    for (const payload of [onlySessionId, onlyHeader, nothing]) {
+      expect(payload.vds).toBeUndefined();
+      expect(payload.caveats).not.toContain(VDS_SESSION_CAVEAT);
+      // Not an error: the viz answered, it just had nothing usable to say.
+      expect(payload.errors).toBeUndefined();
+    }
+  });
+
+  it('bounds an oversized session value', async () => {
+    const payload = await captureWithViz(
+      vi.fn().mockResolvedValue({
+        vizqlServerSessionId: 'z'.repeat(MAX_SESSION_VALUE_LENGTH + 500),
+        globalSessionHeader: FAKE_GLOBAL_SESSION_HEADER,
+      }),
+    );
+
+    expect(payload.vds?.sessionId.length).toBeLessThanOrEqual(MAX_SESSION_VALUE_LENGTH + 1);
+  });
+
+  it('accepts a synchronously returned session, not only a promise', async () => {
+    const payload = await captureWithViz(
+      vi.fn().mockReturnValue({
+        vizqlServerSessionId: FAKE_VIZQL_SESSION_ID,
+        globalSessionHeader: FAKE_GLOBAL_SESSION_HEADER,
+      }),
+    );
+
+    expect(payload.vds).toEqual({
+      sessionId: FAKE_VIZQL_SESSION_ID,
+      globalSessionHeader: FAKE_GLOBAL_SESSION_HEADER,
+    });
   });
 });

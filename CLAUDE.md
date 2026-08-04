@@ -106,6 +106,7 @@ Each tool is a subdirectory containing:
 
 Key tools include:
 - `queryDatasource`: Query Tableau datasources
+- `queryWorkbookDatasource`: Query a workbook's datasource via a rendered viz's VizQL session
 - `contentExploration`: Search workbooks, views, datasources
 - `getDatasourceMetadata`: Retrieve datasource schema/fields
 - `pulse`: Pulse-related operations

@@ -220,6 +220,28 @@ describe('fitPayloadToBudget', () => {
     expect(parsed.errors).toContain(IDENTITY_ONLY_ERROR);
   });
 
+  it('keeps the VizQL session with the datasource refs through the identity-only rung', () => {
+    // Neither half is usable alone: the id needs the session to resolve, and the session is only a
+    // handle for ids. If the refs survive the squeeze, the session has to survive with them.
+    const payload = makePayload({
+      caveats: ['short'],
+      filters: makeFatFilters(20, 60),
+      datasources: [{ name: 'Sample - Superstore', id: 'sqlproxy.0abc', isPublished: true }],
+      vds: { sessionId: 'session-value', globalSessionHeader: 'header-value' },
+    });
+
+    const result = fitPayloadToBudget(payload, 700);
+    const parsed = JSON.parse(result.text) as VizStatePayload;
+
+    expect(result.bytes).toBeLessThanOrEqual(700);
+    expect(parsed.filters).toEqual([]);
+    expect(parsed.datasources).toEqual([
+      { name: 'Sample - Superstore', id: 'sqlproxy.0abc', isPublished: true },
+    ]);
+    expect(parsed.vds).toEqual({ sessionId: 'session-value', globalSessionHeader: 'header-value' });
+    expect(parsed.errors).toContain(IDENTITY_ONLY_ERROR);
+  });
+
   it('preserves pre-existing errors when falling back to identity', () => {
     const payload = makePayload({
       caveats: ['short'],

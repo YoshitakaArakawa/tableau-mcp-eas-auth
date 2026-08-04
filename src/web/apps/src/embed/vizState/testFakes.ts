@@ -30,6 +30,19 @@ export const FAKE_EMBED_TOKEN =
 export const ON_SCREEN_SHEET_NAME = 'Sheet A';
 export const OFF_SCREEN_SHEET_NAME = 'Off Screen Sheet';
 
+/**
+ * Stand-ins for what `getVizQLDataServiceSessionInfo()` returns. Opaque strings on the real API; the
+ * shapes here are dummies, deliberately not resembling any real session value.
+ */
+export const FAKE_VIZQL_SESSION_ID = 'fake-vizql-session-0123456789abcdef';
+export const FAKE_GLOBAL_SESSION_HEADER = 'ZmFrZS1nbG9iYWwtc2Vzc2lvbi1oZWFkZXI=';
+
+/** A workbook-internal datasource id in the `sqlproxy.*` form measured for a published reference. */
+export const FAKE_SQLPROXY_DATASOURCE_ID = 'sqlproxy.0abcdef1234567890abcdef12';
+
+/** The `federated.*` form measured for a datasource embedded in the workbook (no LUID exists). */
+export const FAKE_FEDERATED_DATASOURCE_ID = 'federated.0fedcba9876543210fedcba98';
+
 export function makeCategoricalFilter(overrides: Partial<TableauFilter> = {}): TableauFilter {
   return {
     fieldName: 'Region',
@@ -144,12 +157,23 @@ export function makeDashboardWorkbook(overrides: Partial<TableauWorkbook> = {}):
  */
 export function makeFakeVizElement(
   workbook: TableauWorkbook = makeDashboardWorkbook(),
+  overrides: Partial<TableauVizElement> = {},
 ): TableauVizElement {
   const element = document.createElement('tableau-viz') as TableauVizElement;
   element.setAttribute('src', 'https://tableau.example.com/views/Fake/Sheet');
   element.setAttribute('token', FAKE_EMBED_TOKEN);
 
-  Object.assign(element, { workbook, _workbookImpl: workbook });
+  Object.assign(element, {
+    workbook,
+    _workbookImpl: workbook,
+    // Present by default: 3.16+ is what the deployed embed loads. Tests that need the older API
+    // override it with `undefined`.
+    getVizQLDataServiceSessionInfo: vi.fn().mockResolvedValue({
+      vizqlServerSessionId: FAKE_VIZQL_SESSION_ID,
+      globalSessionHeader: FAKE_GLOBAL_SESSION_HEADER,
+    }),
+    ...overrides,
+  });
 
   const getParameters = workbook.getParametersAsync;
   if (getParameters !== undefined) {

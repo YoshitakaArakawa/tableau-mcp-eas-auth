@@ -42,6 +42,9 @@ import {
   MAX_FIELD_ID_LENGTH,
   MAX_FILTER_VALUES,
   MAX_SELECTED_MARKS,
+  MAX_SESSION_VALUE_LENGTH,
+  VDS_SESSION_CAVEAT,
+  type VdsSessionRef,
   type VizStatePayload,
 } from './payload.js';
 import { sanitizeFiniteNumber, sanitizeString, sanitizeStrings } from './sanitize.js';
@@ -377,6 +380,22 @@ export async function captureVizState(options: CaptureOptions): Promise<VizState
       }
     }
 
+    // --- VizQL session (what makes the datasource ids resolvable server-side) --------------------
+    // Only read when there are datasource refs to pair it with: the session values are useless on
+    // their own, and not reading them is one less thing to carry into the model's context.
+    if (!aborted && payload.datasources !== undefined) {
+      const session = await captureVdsSession(options.viz, queue);
+
+      if (session instanceof CaptureAbortedError) {
+        noteAbort(session);
+      } else if (typeof session === 'string') {
+        errors.push(session);
+      } else if (session !== undefined) {
+        payload.vds = session;
+        payload.caveats.push(VDS_SESSION_CAVEAT);
+      }
+    }
+
     return finalize();
   } catch (error) {
     // Belt and braces: nothing above is expected to escape, but a capture must never reject.
@@ -422,6 +441,11 @@ async function captureDatasources(
         if (source?.id !== undefined) {
           ref.id = sanitizeString(source.id, MAX_FIELD_ID_LENGTH);
         }
+        // Reported only when the API actually answered: `isPublished` decides whether a LUID for
+        // this datasource exists at all, so an invented `false` would be a lie the model acts on.
+        if (typeof source?.isPublished === 'boolean') {
+          ref.isPublished = source.isPublished;
+        }
         return ref;
       })
       .filter((ref) => ref.name !== '' || ref.id !== undefined);
@@ -434,6 +458,53 @@ async function captureDatasources(
     }
 
     return `datasources unavailable: ${errorText(error)}`;
+  }
+}
+
+export const VDS_SESSION_MISSING_API_ERROR =
+  'datasource querying unavailable: getVizQLDataServiceSessionInfo requires Embedding API 3.16+';
+
+/**
+ * Reads the viz's VizQL session, the second half of what the `query-workbook-datasource` tool needs.
+ *
+ * Returns the pair on success, `undefined` when the viz answered without usable values, an error
+ * line on a failed read, or the `CaptureAbortedError` itself when the queue aborted.
+ *
+ * Not cached across captures. The measured lifetime is long (still valid 26 minutes after the page
+ * closed) but no upper bound was established, so a value is re-read rather than pinned to the first
+ * capture and served stale for the rest of the page's life.
+ */
+async function captureVdsSession(
+  viz: TableauVizElement,
+  queue: SerialQueue,
+): Promise<VdsSessionRef | undefined | string | CaptureAbortedError> {
+  const getSessionInfo = viz.getVizQLDataServiceSessionInfo;
+  if (typeof getSessionInfo !== 'function') {
+    return VDS_SESSION_MISSING_API_ERROR;
+  }
+
+  try {
+    const info = await queue.run('getVizQLDataServiceSessionInfo', async () =>
+      getSessionInfo.call(viz),
+    );
+
+    const sessionId = sanitizeString(info?.vizqlServerSessionId, MAX_SESSION_VALUE_LENGTH);
+    const globalSessionHeader = sanitizeString(info?.globalSessionHeader, MAX_SESSION_VALUE_LENGTH);
+
+    // Both halves or neither: a request carrying only one is rejected by Tableau, so half a pair in
+    // the payload would only invite a call that cannot work.
+    if (sessionId === '' || globalSessionHeader === '') {
+      return undefined;
+    }
+
+    return { sessionId, globalSessionHeader };
+  } catch (error) {
+    if (error instanceof CaptureAbortedError) {
+      return error;
+    }
+
+    // The message is from the Embedding API, not from the session values, so it is safe to report.
+    return `datasource querying unavailable: ${errorText(error)}`;
   }
 }
 
